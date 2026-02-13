@@ -81,11 +81,10 @@ class Attention4D(torch.nn.Module):
             self.upsample = None
 
         self.N = self.resolution ** 2
-        self.N2 = self.N
         self.d = int(attn_ratio * key_dim)
         self.dh = int(attn_ratio * key_dim) * num_heads
         self.attn_ratio = attn_ratio
-        h = self.dh + nh_kd * 2
+
         self.q = nn.Sequential(nn.Conv2d(dim, self.num_heads * self.key_dim, 1),
                                nn.BatchNorm2d(self.num_heads * self.key_dim), )
         self.k = nn.Sequential(nn.Conv2d(dim, self.num_heads * self.key_dim, 1),
@@ -123,34 +122,43 @@ class Attention4D(torch.nn.Module):
         super().train(mode)
         if mode and hasattr(self, 'ab'):
             del self.ab
-        else:
-            self.ab = self.attention_biases[:, self.attention_bias_idxs]
-
+        # Không cache self.ab nữa để hỗ trợ dynamic shape
+        
     def forward(self, x):  # x (B,N,C)
         B, C, H, W = x.shape
         if self.stride_conv is not None:
             x = self.stride_conv(x)
+            # Cập nhật H, W sau khi stride
+            B, C, H, W = x.shape
 
-        q = self.q(x).flatten(2).reshape(B, self.num_heads, -1, self.N).permute(0, 1, 3, 2)
-        k = self.k(x).flatten(2).reshape(B, self.num_heads, -1, self.N).permute(0, 1, 2, 3)
+        N_curr = H * W
+        
+        # Sử dụng N_curr thay vì self.N để reshape
+        q = self.q(x).flatten(2).reshape(B, self.num_heads, -1, N_curr).permute(0, 1, 3, 2)
+        k = self.k(x).flatten(2).reshape(B, self.num_heads, -1, N_curr).permute(0, 1, 2, 3)
         v = self.v(x)
         v_local = self.v_local(v)
-        v = v.flatten(2).reshape(B, self.num_heads, -1, self.N).permute(0, 1, 3, 2)
+        v = v.flatten(2).reshape(B, self.num_heads, -1, N_curr).permute(0, 1, 3, 2)
 
-        attn = (
-                (q @ k) * self.scale
-                +
-                (self.attention_biases[:, self.attention_bias_idxs]
-                 if self.training else self.ab)
-        )
-        # attn = (q @ k) * self.scale
+        # Xử lý Attention Bias động
+        if N_curr == self.N:
+             bias = self.attention_biases[:, self.attention_bias_idxs]
+        else:
+             # Nội suy bias nếu kích thước thay đổi
+             bias_static = self.attention_biases[:, self.attention_bias_idxs]
+             # (num_heads, N, N) -> (1, num_heads, N, N) -> interpolate -> (1, num_heads, N_curr, N_curr)
+             bias = F.interpolate(bias_static.unsqueeze(0), size=(N_curr, N_curr), mode='bilinear', align_corners=False).squeeze(0)
+
+        attn = (q @ k) * self.scale + bias
+        
         attn = self.talking_head1(attn)
         attn = attn.softmax(dim=-1)
         attn = self.talking_head2(attn)
 
         x = (attn @ v)
 
-        out = x.transpose(2, 3).reshape(B, self.dh, self.resolution, self.resolution) + v_local
+        # Sử dụng H, W hiện tại thay vì self.resolution
+        out = x.transpose(2, 3).reshape(B, self.dh, H, W) + v_local
         if self.upsample is not None:
             out = self.upsample(out)
 
@@ -200,14 +208,10 @@ class Attention4DDownsample(torch.nn.Module):
         self.num_heads = num_heads
         self.scale = key_dim ** -0.5
         self.key_dim = key_dim
-        self.nh_kd = nh_kd = key_dim * num_heads
-
         self.resolution = resolution
-
         self.d = int(attn_ratio * key_dim)
         self.dh = int(attn_ratio * key_dim) * num_heads
         self.attn_ratio = attn_ratio
-        h = self.dh + nh_kd * 2
 
         if out_dim is not None:
             self.out_dim = out_dim
@@ -259,29 +263,34 @@ class Attention4DDownsample(torch.nn.Module):
         super().train(mode)
         if mode and hasattr(self, 'ab'):
             del self.ab
-        else:
-            self.ab = self.attention_biases[:, self.attention_bias_idxs]
 
     def forward(self, x):  # x (B,N,C)
         B, C, H, W = x.shape
+        # Tính toán kích thước động
+        # LGQuery có pooling stride 2 nên output resolution là H/2, W/2
+        H2, W2 = math.ceil(H / 2), math.ceil(W / 2)
+        N_curr = H * W
+        N2_curr = H2 * W2
 
-        q = self.q(x).flatten(2).reshape(B, self.num_heads, -1, self.N2).permute(0, 1, 3, 2)
-        k = self.k(x).flatten(2).reshape(B, self.num_heads, -1, self.N).permute(0, 1, 2, 3)
+        q = self.q(x).flatten(2).reshape(B, self.num_heads, -1, N2_curr).permute(0, 1, 3, 2)
+        k = self.k(x).flatten(2).reshape(B, self.num_heads, -1, N_curr).permute(0, 1, 2, 3)
         v = self.v(x)
         v_local = self.v_local(v)
-        v = v.flatten(2).reshape(B, self.num_heads, -1, self.N).permute(0, 1, 3, 2)
+        v = v.flatten(2).reshape(B, self.num_heads, -1, N_curr).permute(0, 1, 3, 2)
 
-        attn = (
-                (q @ k) * self.scale
-                +
-                (self.attention_biases[:, self.attention_bias_idxs]
-                 if self.training else self.ab)
-        )
+        # Xử lý bias
+        if N_curr == self.N and N2_curr == self.N2:
+            bias = self.attention_biases[:, self.attention_bias_idxs]
+        else:
+            bias_static = self.attention_biases[:, self.attention_bias_idxs] # (heads, N2, N)
+            # Interpolate to (heads, N2_curr, N_curr)
+            bias = F.interpolate(bias_static.unsqueeze(0), size=(N2_curr, N_curr), mode='bilinear', align_corners=False).squeeze(0)
 
-        # attn = (q @ k) * self.scale
+        attn = (q @ k) * self.scale + bias
         attn = attn.softmax(dim=-1)
+        
         x = (attn @ v).transpose(2, 3)
-        out = x.reshape(B, self.dh, self.resolution2, self.resolution2) + v_local
+        out = x.reshape(B, self.dh, H2, W2) + v_local
 
         out = self.proj(out)
         return out
