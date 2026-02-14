@@ -12,6 +12,9 @@ import torch.nn as nn
 from ultralytics.nn.backbone.StarNet import *
 from ultralytics.nn.backbone.LSKNet import *
 from ultralytics.nn.backbone.EfficientFormerV2 import *
+from ultralytics.nn.backbone.RepViT import *
+from ultralytics.nn.backbone.MobileNetV4 import *
+from ultralytics.nn.backbone.ConvNeXtV2 import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
     AIFI,
