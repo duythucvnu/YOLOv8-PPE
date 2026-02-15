@@ -284,7 +284,7 @@ class LSNet(torch.nn.Module):
 
 
 def lsnet_t(weights=''):
-    cfgs = dict(img_size=224,
+    cfgs = dict(img_size=640,
                 patch_size=8,
                 embed_dim=[64, 128, 256, 384],
                 depth=[0, 2, 8, 10],
@@ -297,7 +297,7 @@ def lsnet_t(weights=''):
 
 
 def lsnet_s(weights=''):
-    cfgs = dict(img_size=224,
+    cfgs = dict(img_size=640,
                 patch_size=8,
                 embed_dim=[96, 192, 320, 448],
                 depth=[1, 2, 8, 10],
@@ -310,7 +310,7 @@ def lsnet_s(weights=''):
 
 
 def lsnet_b(weights=''):
-    cfgs = dict(img_size=224,
+    cfgs = dict(img_size=640,
                 patch_size=8,
                 embed_dim=[128, 256, 384, 512],
                 depth=[4, 6, 8, 10],
