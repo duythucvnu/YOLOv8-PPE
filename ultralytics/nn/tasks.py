@@ -16,6 +16,7 @@ from ultralytics.nn.backbone.RepViT import *
 from ultralytics.nn.backbone.MobileNetV4 import *
 from ultralytics.nn.backbone.ConvNeXtV2 import *
 from ultralytics.nn.backbone.UniRepLKNet import *
+from ultralytics.nn.backbone.LSNet import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
     AIFI,
@@ -1712,7 +1713,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
         MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
         convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
-        unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl,}:
+        unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b,}:
             m = m(*args)
             c2 = m.channel
         else:
