@@ -165,4 +165,7 @@ class SkaFn(Function):
 
 class SKA(torch.nn.Module):
     def forward(self, x: torch.Tensor, w: torch.Tensor) -> torch.Tensor:
-        return SkaFn.apply(x, w) # type: ignore
+        if not x.is_cuda:
+            return x * w.sum(dim=1, keepdim=True)
+        
+        return SkaFn.apply(x, w)
