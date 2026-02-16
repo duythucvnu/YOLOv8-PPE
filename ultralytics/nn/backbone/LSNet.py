@@ -271,8 +271,8 @@ class LSNet(torch.nn.Module):
         self.blocks1 = nn.Sequential()
         self.blocks2 = nn.Sequential()
         self.blocks3 = nn.Sequential()
-        #self.blocks4 = nn.Sequential()
-        blocks = [self.blocks1, self.blocks2, self.blocks3]
+        self.blocks4 = nn.Sequential()
+        blocks = [self.blocks1, self.blocks2, self.blocks3, self.blocks4]
         
         for i, (ed, kd, dpth, nh, ar) in enumerate(
                 zip(embed_dim, key_dim, depth, num_heads, attn_ratio)):
