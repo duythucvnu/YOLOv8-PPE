@@ -127,12 +127,34 @@ class Attention(torch.nn.Module):
         q, k, v = qkv.view(B, -1, H, W).split([self.nh_kd, self.nh_kd, self.dh], dim=1)
         q = self.dw(q)
         q, k, v = q.view(B, self.num_heads, -1, N), k.view(B, self.num_heads, -1, N), v.view(B, self.num_heads, -1, N)
+
+        if self.training:
+            bias = self.attention_biases[:, self.attention_bias_idxs]
+        else:
+            bias = self.ab
+            
+        if bias.shape[-1] != N:
+            bias = bias.unsqueeze(0)
+            bias = torch.nn.functional.interpolate(
+                bias, 
+                size=(N, N), 
+                mode='bicubic', 
+                align_corners=True
+            )
+            
+            bias = bias.squeeze(0)
+
         attn = (
+            (q.transpose(-2, -1) @ k) * self.scale
+            + bias
+        )
+        """attn = (
             (q.transpose(-2, -1) @ k) * self.scale
             +
             (self.attention_biases[:, self.attention_bias_idxs]
              if self.training else self.ab)
         )
+        """
         attn = attn.softmax(dim=-1)
         x = (v @ attn.transpose(-2, -1)).reshape(B, -1, H, W)
         x = self.proj(x)
