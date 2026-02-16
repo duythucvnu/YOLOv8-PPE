@@ -271,8 +271,8 @@ class LSNet(torch.nn.Module):
         self.blocks1 = nn.Sequential()
         self.blocks2 = nn.Sequential()
         self.blocks3 = nn.Sequential()
-        self.blocks4 = nn.Sequential()
-        blocks = [self.blocks1, self.blocks2, self.blocks3, self.blocks4]
+        #self.blocks4 = nn.Sequential()
+        blocks = [self.blocks1, self.blocks2, self.blocks3]
         
         for i, (ed, kd, dpth, nh, ar) in enumerate(
                 zip(embed_dim, key_dim, depth, num_heads, attn_ratio)):
@@ -297,9 +297,9 @@ class LSNet(torch.nn.Module):
         x1 = self.blocks1(x) # Stage 1 (P2), Stride 4
         x2 = self.blocks2(x1) # Stage 2 (P3), Stride 8
         x3 = self.blocks3(x2) # Stage 3 (P4), Stride 16
-        x4 = self.blocks4(x3) # Stage 4 (P5), Stride 32
+        #x4 = self.blocks4(x3) # Stage 4 (P5), Stride 32
 
-        return [x1, x2, x3, x4] 
+        return [x1, x2, x3] 
 
     def switch_to_deploy(self):
         replace_batchnorm(self)
