@@ -279,7 +279,7 @@ class LSNet(torch.nn.Module):
             for d in range(dpth):
                 blocks[i].append(Block(ed, kd, nh, ar, resolution, stage=i, depth=d))
             
-            if i != len(depth) - 1:
+            if i != len(depth) - 2:
                 blk = blocks[i+1]
                 resolution_ = (resolution - 1) // 2 + 1
                 blk.append(Conv2d_BN(embed_dim[i], embed_dim[i], ks=3, stride=2, pad=1, groups=embed_dim[i]))
