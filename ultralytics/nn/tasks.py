@@ -19,6 +19,7 @@ from ultralytics.nn.backbone.UniRepLKNet import *
 from ultralytics.nn.backbone.LSNet import *
 from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
 from ultralytics.nn.neck.MLLA import *
+from ultralytics.nn.modules.CARAFE import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
     AIFI,
@@ -1697,6 +1698,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = sum(ch[x] for x in f)
         elif m is BiFPN_Concat3:
             c2 = sum(ch[x] for x in f)
+        elif m is CARAFE:
+            c1 = ch[f]
+            c2 = c1
+            args = [c1, *args]
         elif m in {MLLAttention}:
             c2 = ch[f]
             args = [c2, *args]
