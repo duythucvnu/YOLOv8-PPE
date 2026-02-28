@@ -59,6 +59,7 @@ from .block import (
     ResNetLayer,
     SCDown,
     TorchVision,
+    FocalModulation,
 )
 from .conv import (
     CBAM,
@@ -177,6 +178,7 @@ __all__ = (
     "Attention",
     "PSA",
     "TorchVision",
+    "FocalModulation",
     "Index",
     "A2C2f",
 )

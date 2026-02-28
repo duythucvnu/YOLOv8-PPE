@@ -74,6 +74,7 @@ from ultralytics.nn.modules import (
     SCDown,
     Segment,
     TorchVision,
+    FocalModulation,
     WorldDetect,
     YOLOEDetect,
     YOLOESegment,
@@ -1676,7 +1677,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
  
             args = [c1, c2, *args[1:]]
  
-        elif m in {AIFI}:
+        elif m in {AIFI, FocalModulation}:
             args = [ch[f], *args]
             c2 = args[0]
         elif m in (HGStem, HGBlock):
