@@ -1780,6 +1780,14 @@ def parse_model(d, ch, verbose=True):
             args = [c1, c2, *args[1:]]
         elif m is CBFuse:
             c2 = ch[f[-1]]
+        elif isinstance(m, str):
+            t = m
+            if len(args) == 2:
+                m = timm.create_model(m, pretrained=args[0], pretrained_cfg_overlay={'file': args[1]},
+                                      features_only=True)
+            elif len(args) == 1:
+                m = timm.create_model(m, pretrained=args[0], features_only=True)
+            c2 = m.feature_info.channels()
         elif m in {lsknet_t, lsknet_s, starnet_s050, starnet_s100, starnet_s150, starnet_s1, starnet_s2, starnet_s3, starnet_s4,
         efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
         MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
