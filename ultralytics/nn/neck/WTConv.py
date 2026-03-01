@@ -58,8 +58,8 @@ class WTConv2d(nn.Module):
         self.dilation = 1
  
         self.wt_filter, self.iwt_filter = create_wavelet_filter(wt_type, in_channels, in_channels, torch.float)
-        self.wt_filter = nn.Parameter(self.wt_filter, requires_grad=False)
-        self.iwt_filter = nn.Parameter(self.iwt_filter, requires_grad=False)
+        self.register_buffer('wt_filter', wt_filter)
+        self.register_buffer('iwt_filter', iwt_filter)
  
         self.wt_function = partial(wavelet_transform, filters=self.wt_filter)
         self.iwt_function = partial(inverse_wavelet_transform, filters=self.iwt_filter)
