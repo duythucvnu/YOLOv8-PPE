@@ -34,7 +34,7 @@ from ultralytics.nn.modules import (
     C3,
     C3TR,
     ELAN1,
-    OBB,w
+    OBB,
     PSA,
     SPP,
     SPPELAN,
