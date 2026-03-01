@@ -9,8 +9,6 @@ from typing import Any, Dict, List, Tuple, Union
 import numpy as np
 import torch
 
-from ultralytics.utils import ops
-
 from ultralytics.utils import LOGGER, DataExportMixin, SimpleClass, TryExcept, checks, plt_settings
 
 OKS_SIGMA = (
@@ -125,6 +123,8 @@ def bbox_iou(box1, box2, xywh=True, GIoU=False, DIoU=False, CIoU=False, EIoU=Fal
     Returns:
         (torch.Tensor): IoU, GIoU, DIoU, or CIoU values depending on the specified flags.
     """
+    from ultralytics.utils import ops
+    
     if Inner:
         if not xywh:
             box1, box2 = ops.xyxy2xywh(box1), ops.xyxy2xywh(box2)
