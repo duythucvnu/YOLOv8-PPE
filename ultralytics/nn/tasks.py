@@ -17,13 +17,6 @@ from ultralytics.nn.backbone.MobileNetV4 import *
 from ultralytics.nn.backbone.ConvNeXtV2 import *
 from ultralytics.nn.backbone.UniRepLKNet import *
 from ultralytics.nn.backbone.LSNet import *
-from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
-from ultralytics.nn.neck.MLLA import *
-from ultralytics.nn.neck.WTConv import *
-from ultralytics.nn.neck.C2fMLLA import *
-from ultralytics.nn.neck.C2fDynamic import *
-from ultralytics.nn.neck.C2fGhost import *
-from ultralytics.nn.neck.SAConv import *
 from ultralytics.nn.modules.CARAFE import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
@@ -107,6 +100,13 @@ from ultralytics.utils.torch_utils import (
     smart_inference_mode,
     time_sync,
 )
+from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
+from ultralytics.nn.neck.MLLA import *
+from ultralytics.nn.neck.WTConv import *
+from ultralytics.nn.neck.C2fMLLA import *
+from ultralytics.nn.neck.C2fDynamic import *
+from ultralytics.nn.neck.C2fGhost import *
+from ultralytics.nn.neck.SAConv import *
 
 
 class BaseModel(torch.nn.Module):
