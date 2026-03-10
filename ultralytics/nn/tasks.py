@@ -37,6 +37,7 @@ from ultralytics.nn.modules import (
     Bottleneck,
     BottleneckCSP,
     C2f,
+    C2f_DyT,
     C2fAttn,
     C2fCIB,
     C2fPSA,
@@ -48,6 +49,7 @@ from ultralytics.nn.modules import (
     Classify,
     Concat,
     Conv,
+    Conv_DyT,
     Conv2,
     ConvTranspose,
     Detect,
@@ -1667,7 +1669,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         n = n_ = max(round(n * depth), 1) if n > 1 else n  # depth gain
         if m in {
             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
-            BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR,
+            BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR, Conv_DyT, C2f_DyT,
             C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_WTConv, 
             C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB,
  

@@ -38,6 +38,7 @@ from .block import (
     Bottleneck,
     BottleneckCSP,
     C2f,
+    C2f_DyT,
     C2fAttn,
     C2fCIB,
     C2fPSA,
@@ -66,6 +67,7 @@ from .conv import (
     ChannelAttention,
     Concat,
     Conv,
+    Conv_DyT,
     Conv2,
     ConvTranspose,
     DWConv,
@@ -105,6 +107,7 @@ from .transformer import (
 
 __all__ = (
     "Conv",
+    "Conv_DyT",
     "Conv2",
     "LightConv",
     "RepConv",
@@ -130,6 +133,7 @@ __all__ = (
     "C2",
     "C3",
     "C2f",
+    "C2f_DyT",
     "C3k2",
     "SCDown",
     "C2fPSA",
