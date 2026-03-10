@@ -100,6 +100,7 @@ from ultralytics.utils.torch_utils import (
     time_sync,
 )
 from ultralytics.nn.modules.CARAFE import *
+from ultralytics.nn.modules.DyT import *
 from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
 from ultralytics.nn.neck.MLLA import *
 from ultralytics.nn.neck.WTConv import *
@@ -107,6 +108,7 @@ from ultralytics.nn.neck.C2fMLLA import *
 from ultralytics.nn.neck.C2fDynamic import *
 from ultralytics.nn.neck.C2fGhost import *
 from ultralytics.nn.neck.SAConv import *
+from ultralytics.nn.neck.C2fCIB import *
 
 
 class BaseModel(torch.nn.Module):
@@ -1667,7 +1669,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
             BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR,
             C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_WTConv, 
-            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv,
+            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB,
  
         }:
             if args[0] == 'head_channel':
@@ -1682,7 +1684,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 )  # num heads
  
             args = [c1, c2, *args[1:]]
- 
+
+        elif m in {DyT}:
+            args = [*args]
         elif m in {AIFI, FocalModulation}:
             args = [ch[f], *args]
             c2 = args[0]
