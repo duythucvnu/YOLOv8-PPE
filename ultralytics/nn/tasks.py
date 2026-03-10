@@ -102,7 +102,6 @@ from ultralytics.utils.torch_utils import (
     time_sync,
 )
 from ultralytics.nn.modules.CARAFE import *
-from ultralytics.nn.modules.DyT import *
 from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
 from ultralytics.nn.neck.MLLA import *
 from ultralytics.nn.neck.WTConv import *
@@ -1687,8 +1686,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
  
             args = [c1, c2, *args[1:]]
 
-        elif m in {DyT}:
-            args = [*args]
         elif m in {AIFI, FocalModulation}:
             args = [ch[f], *args]
             c2 = args[0]
