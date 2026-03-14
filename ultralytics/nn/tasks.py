@@ -1738,7 +1738,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
         MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
         convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
-        unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b,repvit_m0_91, repvit_m1_01, repvit_m1_11, repvit_m1_51, repvit_m2_31}:
+        unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, repvit_m1_51}:
             m = m(*args)
             c2 = m.channel
         else:
