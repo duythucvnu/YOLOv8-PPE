@@ -3,7 +3,7 @@ import torch.nn as nn
 import numpy as np
 from timm.models.layers import SqueezeExcite
 
-__all__ = ['repvit_m0_91', 'repvit_m1_01', 'repvit_m1_11', 'repvit_m1_51', 'repvit_m2_31']
+__all__ = ['repvit_m1_51']
 
 class DynamicTanh(nn.Module):
     def __init__(self, channels, gamma_init=1.0):
@@ -164,7 +164,7 @@ def update_weight(model_dict, weight_dict):
     return model_dict
 
 
-def repvit_m1_5(weights=''):
+def repvit_m1_51(weights=''):
     cfgs = [
         [3,2,64,0,0,1],[3,2,64,0,0,1],[3,2,128,0,0,2],[3,2,128,1,0,1],
         [3,2,128,0,0,1],[3,2,128,1,0,1],[3,2,128,0,0,1],[3,2,128,0,0,1],
