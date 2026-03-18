@@ -303,17 +303,6 @@ class CARENets(nn.Module):
             if m.bias is not None: nn.init.constant_(m.bias, 0)
 
 
-def update_weight(model_dict, weight_dict):
-    idx, temp_dict = 0, {}
-    for k, v in weight_dict.items():
-        # k = k[9:]
-        if k in model_dict.keys() and np.shape(model_dict[k]) == np.shape(v):
-            temp_dict[k] = v
-            idx += 1
-    model_dict.update(temp_dict)
-    print(f'loading weights... {idx}/{len(model_dict)} items')
-    return model_dict
-
 def CARETrans_S0(pretrained='', **kwargs):
     model = CARENets(
                 token_mixers=TokenMixer,
@@ -324,8 +313,10 @@ def CARETrans_S0(pretrained='', **kwargs):
                 ratios=((2, 2), (2, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        model.load_state_dict(update_weight(model.state_dict(), torch.load(pretrained)['state_dict']))
-        print("Load weights succesfully")
+        state_dict = torch.hub.load_state_dict_from_url(
+            url= pretrained, map_location="cpu", check_hash=True)
+        model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -339,8 +330,10 @@ def CARETrans_S1(pretrained='', **kwargs):
                 ratios=((2, 4), (2, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        model.load_state_dict(update_weight(model.state_dict(), torch.load(pretrained)['state_dict']))
-        print("Load weights succesfully")
+        state_dict = torch.hub.load_state_dict_from_url(
+            url= pretrained, map_location="cpu", check_hash=True)
+        model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -354,8 +347,10 @@ def CARETrans_S2(pretrained='', **kwargs):
                 ratios=((4, 4), (4, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        model.load_state_dict(update_weight(model.state_dict(), torch.load(pretrained)['state_dict']))
-        print("Load weights succesfully")
+        state_dict = torch.hub.load_state_dict_from_url(
+            url= pretrained, map_location="cpu", check_hash=True)
+        model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
 
     return model
 
