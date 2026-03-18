@@ -295,6 +295,8 @@ class CARENets(nn.Module):
             x = stage(x)
             if i > 0:
                 outs.append(x)
+        print(f"Output value: {outs}")
+        print(f"Output shape: {outs.shape}")
         return outs
 
     def _init_weights(self, m):
@@ -328,7 +330,7 @@ def CARETrans_S1(pretrained='', **kwargs):
                 ratios=((2, 4), (2, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        state_dict = torch.load("/kaggle/input/models/mrowlrl/care/pytorch/default/1/CARETrans_S1.pth.tar", map_location="cpu")
+        state_dict = torch.load(pretrained, map_location="cpu")
         model.load_state_dict(state_dict, strict=False)
         print(f'Load weights successfully')
     return model
