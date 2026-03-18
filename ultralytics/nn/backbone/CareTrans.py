@@ -295,9 +295,9 @@ class CARENets(nn.Module):
             x = stage(x)
             if i > 0:
                 outs.append(x)
-        print("\n[DEBUG CARETrans Backbone]")
-        for idx, out_tensor in enumerate(outs):
-            print(f"  - Stage {idx + 1} (P{idx + 3}) output shape: {out_tensor.shape}")
+        #print("\n[DEBUG CARETrans Backbone]")
+        #for idx, out_tensor in enumerate(outs):
+        #    print(f"  - Stage {idx + 1} (P{idx + 3}) output shape: {out_tensor.shape}")
         return outs
 
     def _init_weights(self, m):
