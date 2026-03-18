@@ -220,6 +220,7 @@ def mambaout_femto(pretrained=False, **kwargs):
         state_dict = torch.hub.load_state_dict_from_url(
             url= model.default_cfg['url'], map_location="cpu", check_hash=True)
         model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -233,6 +234,7 @@ def mambaout_kobe(pretrained=False, **kwargs):
         state_dict = torch.hub.load_state_dict_from_url(
             url= model.default_cfg['url'], map_location="cpu", check_hash=True)
         model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -247,6 +249,7 @@ def mambaout_tiny(pretrained=False, **kwargs):
         state_dict = torch.hub.load_state_dict_from_url(
             url= model.default_cfg['url'], map_location="cpu", check_hash=True)
         model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -261,6 +264,7 @@ def mambaout_small(pretrained=False, **kwargs):
         state_dict = torch.hub.load_state_dict_from_url(
             url= model.default_cfg['url'], map_location="cpu", check_hash=True)
         model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 
@@ -275,6 +279,7 @@ def mambaout_base(pretrained=False, **kwargs):
         state_dict = torch.hub.load_state_dict_from_url(
             url= model.default_cfg['url'], map_location="cpu", check_hash=True)
         model.load_state_dict(state_dict, strict=False)
+        print(f'Load weights successfully')
     return model
 
 if __name__ == '__main__':
