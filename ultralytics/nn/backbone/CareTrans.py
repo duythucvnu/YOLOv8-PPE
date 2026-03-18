@@ -248,7 +248,6 @@ class CARENets(nn.Module):
         if not isinstance(ratios, (list, tuple)): ratios = [ratios] * num_stage
 
         self.att_head_dim = att_head_dim
-        self.num_classes = num_classes
         self.drop_rate = drop_rate
         self.stem = nn.Sequential(nn.Conv2d(in_chans, dims[0], kernel_size=4, stride=4), norm_layer(dims[0]))
         self.stages = nn.Sequential()
