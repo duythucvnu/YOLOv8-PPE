@@ -5,8 +5,9 @@ import torch
 import torch.nn as nn
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.helpers import checkpoint_seq
-from timm.models.layers import trunc_normal_, DropPath
-from timm.models.layers.helpers import to_2tuple
+from timm.layers.drop import DropPath
+from timm.layers.weight_init import trunc_normal_
+from timm.layers.helpers import to_2tuple
 import time
 
 
