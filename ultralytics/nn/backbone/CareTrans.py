@@ -313,7 +313,7 @@ def CARETrans_S0(pretrained='', **kwargs):
                 ratios=((2, 2), (2, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        state_dict = torch.hub.load(pretrained, map_location="cpu")
+        state_dict = torch.load(pretrained, map_location="cpu")
         print(f'Load weights successfully')
     return model
 
@@ -328,7 +328,7 @@ def CARETrans_S1(pretrained='', **kwargs):
                 ratios=((2, 4), (2, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        state_dict = torch.hub.load(pretrained, map_location="cpu")
+        state_dict = torch.load(pretrained, map_location="cpu")
         model.load_state_dict(state_dict, strict=False)
         print(f'Load weights successfully')
     return model
@@ -344,7 +344,7 @@ def CARETrans_S2(pretrained='', **kwargs):
                 ratios=((4, 4), (4, 4), (4, 4), (4, 4)),
                 **kwargs)
     if pretrained:
-        state_dict = torch.hub.load(pretrained, map_location="cpu")
+        state_dict = torch.load(pretrained, map_location="cpu")
         model.load_state_dict(state_dict, strict=False)
         print(f'Load weights successfully')
 
