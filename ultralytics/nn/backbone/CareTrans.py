@@ -241,7 +241,7 @@ class CARENets(nn.Module):
     ):
         super().__init__()
         num_stage = len(depths)
-        self.channel = [feat_dims[1] + mem_dims[1], feat_dims[2] + mem_dims[2], feat_dims[3] + mem_dims[3]]
+        self.channel = [feat_dims[1] + mem_dims[1], feat_dims[2] + mem_dims[2], kwargs.get('cls_dim', (feat_dims[3] + mem_dims[3]) * ratios[-1][1])]
         dims = tuple(f + m for f, m in zip(feat_dims, mem_dims))
         att_layer = 2
         if not isinstance(token_mixers, (list, tuple)): token_mixers = [token_mixers] * num_stage
