@@ -9,8 +9,7 @@ from functools import partial
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from timm.models.layers import trunc_normal_, DropPath
-from timm.models.registry import register_model
+from timm.layers import trunc_normal_, DropPath
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 
 
@@ -123,9 +122,9 @@ class GatedCNNBlock(nn.Module):
         shortcut = x # [B, H, W, C]
         x = self.norm(x)
         g, i, c = torch.split(self.fc1(x), self.split_indices, dim=-1)
-        c = c.permute(0, 3, 1, 2) # [B, H, W, C] -> [B, C, H, W]
+        c = c.permute(0, 3, 1, 2).contiguous() # [B, H, W, C] -> [B, C, H, W]
         c = self.conv(c)
-        c = c.permute(0, 2, 3, 1) # [B, C, H, W] -> [B, H, W, C]
+        c = c.permute(0, 2, 3, 1).contiguous() # [B, C, H, W] -> [B, H, W, C]
         x = self.fc2(self.act(g) * torch.cat((i, c), dim=-1))
         x = self.drop_path(x)
         return x + shortcut
