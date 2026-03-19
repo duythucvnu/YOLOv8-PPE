@@ -166,6 +166,9 @@ class PatchMerging(nn.Module):
 
 
 
+def silu_out_of_place(x):
+    return x * torch.sigmoid(x)
+
 class HSMSSD(nn.Module):
     def __init__(self, d_model, ssd_expand=1, A_init_range=(1, 16), state_dim = 64):
         super().__init__()
@@ -181,7 +184,7 @@ class HSMSSD(nn.Module):
 
         A = torch.empty(self.state_dim, dtype=torch.float32).uniform_(*A_init_range)
         self.A = torch.nn.Parameter(A)
-        self.act = nn.SiLU(inplace=False)
+        
         self.D = nn.Parameter(torch.ones(1))
         self.D._no_weight_decay = True
 
@@ -197,10 +200,12 @@ class HSMSSD(nn.Module):
         h = x @ AB.transpose(-2,-1) 
         
         h, z = torch.split(self.hz_proj(h), [self.d_inner, self.d_inner], dim=1) 
-        h = self.out_proj(h * self.act(z)+ h * self.D)
-        y = h @ C # B C N, B C L -> B C L
+
+        h = self.out_proj(h * silu_out_of_place(z) + h * self.D)
         
-        y = y.view(batch,-1,H,H).contiguous()# + x * self.D  # B C H W
+        y = h @ C 
+        
+        y = y.view(batch,-1,H,H).contiguous()
         return y, h
 
 
