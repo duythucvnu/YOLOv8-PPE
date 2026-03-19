@@ -367,7 +367,7 @@ def EfficientViM_M1(pretrained=False, **kwargs):
         depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
-        state_dim=[49,25,9],
+        state_dim=[49,25,9,1],
         **kwargs)
     if pretrained:
         state_dict = torch.load(pretrained, map_location="cpu")
@@ -384,7 +384,7 @@ def EfficientViM_M2(pretrained=False, **kwargs):
         depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
-        state_dim=[49,25,9],
+        state_dim=[49,25,9,1],
         **kwargs)
     if pretrained:
         state_dict = torch.load(pretrained, map_location="cpu")
@@ -401,7 +401,7 @@ def EfficientViM_M3(pretrained=False, **kwargs):
         depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
-        state_dim=[49,25,9],
+        state_dim=[49,25,9,1],
         **kwargs)
     if pretrained:
         state_dict = torch.load(pretrained, map_location="cpu")
@@ -418,7 +418,7 @@ def EfficientViM_M4(pretrained=False, **kwargs):
         depths=[3,4,2,5],
         mlp_ratio=4.,
         ssd_expand=1.,
-        state_dim=[64,32,16],
+        state_dim=[64,32,16,8],
         **kwargs)
     if pretrained:
         state_dict = torch.load(pretrained, map_location="cpu")
