@@ -263,7 +263,7 @@ class EfficientViM(nn.Module):
     def __init__(self, in_dim=3, embed_dim=[128,256,512], depths=[2, 2, 2], mlp_ratio=4., ssd_expand=1, state_dim=[49,25,9], distillation=False, **kwargs):
         super().__init__()
         self.num_layers = len(depths)
-        self.channel = [128,256,512]
+        self.channel = embed_dim
         self.distillation =distillation
         self.patch_embed = Stem(in_dim=in_dim, dim=embed_dim[0])
         PatchMergingBlock = PatchMerging
