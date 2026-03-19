@@ -265,7 +265,7 @@ class EfficientViMStage(nn.Module):
 
 
 class EfficientViM(nn.Module):
-    def __init__(self, in_dim=3, embed_dim=[128,256,512], depths=[2, 2, 2], mlp_ratio=4., ssd_expand=1, state_dim=[49,25,9], distillation=False, **kwargs):
+    def __init__(self, in_dim=3, embed_dim=[128,256,512,1024], depths=[2, 2, 2,2], mlp_ratio=4., ssd_expand=1, state_dim=[49,25,9], distillation=False, **kwargs):
         super().__init__()
         self.num_layers = len(depths)
         self.channel = embed_dim
@@ -363,8 +363,8 @@ class EfficientViM(nn.Module):
 def EfficientViM_M1(pretrained=False, **kwargs):
     model = EfficientViM(
         in_dim=3,
-        embed_dim=[128,192,320],
-        depths=[2,2,2],
+        embed_dim=[128,192,320,576],
+        depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
         state_dim=[49,25,9],
@@ -380,8 +380,8 @@ def EfficientViM_M1(pretrained=False, **kwargs):
 def EfficientViM_M2(pretrained=False, **kwargs):
     model = EfficientViM(
         in_dim=3,
-        embed_dim=[128,256,512],
-        depths=[2,2,2],
+        embed_dim=[128,256,512,1024],
+        depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
         state_dim=[49,25,9],
@@ -397,8 +397,8 @@ def EfficientViM_M2(pretrained=False, **kwargs):
 def EfficientViM_M3(pretrained=False, **kwargs):
     model = EfficientViM(
         in_dim=3,
-        embed_dim=[224,320,512],
-        depths=[2,2,2],
+        embed_dim=[224,320,512,896],
+        depths=[2,2,2,2],
         mlp_ratio=4.,
         ssd_expand=1.,
         state_dim=[49,25,9],
@@ -414,8 +414,8 @@ def EfficientViM_M3(pretrained=False, **kwargs):
 def EfficientViM_M4(pretrained=False, **kwargs):
     model = EfficientViM(
         in_dim=3,
-        embed_dim=[224,320,512],
-        depths=[3,4,2],
+        embed_dim=[224,320,512,896],
+        depths=[3,4,2,5],
         mlp_ratio=4.,
         ssd_expand=1.,
         state_dim=[64,32,16],
