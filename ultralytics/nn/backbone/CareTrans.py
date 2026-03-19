@@ -317,6 +317,7 @@ def CARETrans_S0(pretrained='', **kwargs):
                 **kwargs)
     if pretrained:
         state_dict = torch.load(pretrained, map_location="cpu")
+        model.load_state_dict(state_dict, strict=False)
         print(f'Load weights successfully')
     return model
 
