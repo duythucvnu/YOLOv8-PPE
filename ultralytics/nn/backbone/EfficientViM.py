@@ -181,7 +181,7 @@ class HSMSSD(nn.Module):
 
         A = torch.empty(self.state_dim, dtype=torch.float32).uniform_(*A_init_range)
         self.A = torch.nn.Parameter(A)
-        self.act = nn.SiLU()
+        self.act = nn.SiLU(inplace=False)
         self.D = nn.Parameter(torch.ones(1))
         self.D._no_weight_decay = True
 
@@ -350,8 +350,6 @@ class EfficientViM(nn.Module):
         for i, stage in enumerate(self.stages):
             x, x_out, h = stage(x)
             outs.append(x_out)
-            print(f"   - Stage x {i}: {x.shape}")
-            print(f"   - Stage x_out {i}: {x_out.shape}")
             
         return outs
     
