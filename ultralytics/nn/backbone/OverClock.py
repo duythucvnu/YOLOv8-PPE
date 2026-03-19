@@ -803,6 +803,10 @@ class OverLoCK(nn.Module):
         p4_base, p5_base = self.forward_base_features(p3)
         p4, p5 = self.forward_sub_features(p4_base, p5_base)
 
+        print(f"   - P3 shape: {p3.shape}")
+        print(f"   - P4 shape: {p4.shape}")
+        print(f"   - P5 shape: {p5.shape}")
+
         return [p3, p4, p5]
 
     def forward(self, x):
