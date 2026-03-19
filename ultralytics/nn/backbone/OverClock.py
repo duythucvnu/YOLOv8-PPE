@@ -606,7 +606,7 @@ class OverLoCK(nn.Module):
         
         fusion_dim = embed_dim[-1] + embed_dim[-1]//4
         self.num_features = self.embed_dim = embed_dim
-        self.channel = embed_dim[1], embed_dim[2], embed_dim[3]
+        self.channel = [embed_dim[1], embed_dim[2], embed_dim[3]]
         self.patch_embed1 = stem(in_chans, embed_dim[0])
         self.patch_embed2 = downsample(embed_dim[0], embed_dim[1])
         self.patch_embed3 = downsample(embed_dim[1], embed_dim[2])
