@@ -33,13 +33,10 @@ def get_conv2d(in_channels,
     need_large_impl = kernel_size[0] == kernel_size[1] and kernel_size[0] > 5 and padding == (kernel_size[0] // 2, kernel_size[1] // 2)
 
     if attempt_use_lk_impl and need_large_impl:
-        print('---------------- trying to import iGEMM implementation for large-kernel conv')
         try:
             from depthwise_conv2d_implicit_gemm import DepthWiseConv2dImplicitGEMM
-            print('---------------- found iGEMM implementation ')
         except:
             DepthWiseConv2dImplicitGEMM = None
-            print('---------------- found no iGEMM. use original conv. follow https://github.com/AILab-CVC/UniRepLKNet to install it.')
         if DepthWiseConv2dImplicitGEMM is not None and need_large_impl and in_channels == out_channels \
                 and out_channels == groups and stride == 1 and dilation == 1:
             print(f'===== iGEMM Efficient Conv Impl, channels {in_channels}, kernel size {kernel_size} =====')
@@ -803,9 +800,9 @@ class OverLoCK(nn.Module):
         p4_base, p5_base = self.forward_base_features(p3)
         p4, p5 = self.forward_sub_features(p4_base, p5_base)
 
-        print(f"   - P3 shape: {p3.shape}")
-        print(f"   - P4 shape: {p4.shape}")
-        print(f"   - P5 shape: {p5.shape}")
+        #print(f"   - P3 shape: {p3.shape}")
+        #print(f"   - P4 shape: {p4.shape}")
+        #print(f"   - P5 shape: {p5.shape}")
 
         return [p3, p4, p5]
 
