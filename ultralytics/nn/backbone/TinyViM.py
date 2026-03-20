@@ -5,7 +5,7 @@ import torch.nn as nn
 from timm.data import IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD
 from timm.models.layers import DropPath, trunc_normal_
 from timm.layers.helpers import to_2tuple
-from model.tvimblock import TViMBlock, Conv2d_BN, RepDW, FFN
+from ultralytics.nn.backbone.tvimblock import TViMBlock, Conv2d_BN, RepDW, FFN
 
 __all__ = 'TinyViM_S', 'TinyViM_B', 'TinyViM_L'
 
