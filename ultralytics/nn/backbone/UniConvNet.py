@@ -314,7 +314,7 @@ def UniConvNet_A(pretrained=False, in_22k=False, **kwargs):
     if pretrained:
         url = model_urls['UniConvNet_A_1k']
         checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu", check_hash=True)
-        model.load_state_dict(checkpoint["model"])
+        model.load_state_dict(checkpoint["model"], strict=False)
         print("Load weights successfully")
     return model
 
@@ -325,7 +325,7 @@ def UniConvNet_P0(pretrained=False, in_22k=False, **kwargs):
     if pretrained:
         url = model_urls['UniConvNet_P0_1k']
         checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu", check_hash=True)
-        model.load_state_dict(checkpoint["model"])
+        model.load_state_dict(checkpoint["model"], strict=False)
         print("Load weights successfully")
     return model
 
@@ -336,7 +336,7 @@ def UniConvNet_P1(pretrained=False, in_22k=False, **kwargs):
     if pretrained:
         url = model_urls['UniConvNet_P1_1k']
         checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu", check_hash=True)
-        model.load_state_dict(checkpoint["model"])
+        model.load_state_dict(checkpoint["model"], strict=False)
     return model
 
 
@@ -346,6 +346,6 @@ def UniConvNet_P2(pretrained=False, in_22k=False, **kwargs):
     if pretrained:
         url = model_urls['UniConvNet_P2_1k']
         checkpoint = torch.hub.load_state_dict_from_url(url=url, map_location="cpu", check_hash=True)
-        model.load_state_dict(checkpoint["model"])
+        model.load_state_dict(checkpoint["model"], strict=False)
         print("Load weights successfully")
     return model
