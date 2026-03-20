@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from timm.models.layers import trunc_normal_, DropPath
-from ops_dcnv3 import modules as opsm
+from ultralytics.nn.backbone.ops_dcnv3 import modules as opsm
 
 __all__ = "UniConvNet_A", "UniConvNet_P0", "UniConvNet_P1", "UniConvNet_P2"
 
