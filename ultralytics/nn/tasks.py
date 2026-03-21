@@ -22,7 +22,7 @@ from ultralytics.nn.backbone.MambaOut import *
 from ultralytics.nn.backbone.CareTrans import *
 #from ultralytics.nn.backbone.EfficientViM import *
 #from ultralytics.nn.backbone.UniConvNet import *
-from ultralytics.nn.backbone.TinyViM import *
+#from ultralytics.nn.backbone.TinyViM import *
 #from ultralytics.nn.backbone.OverClock import *
 from ultralytics.nn.autobackend import check_class_names
 from ultralytics.nn.modules import (
@@ -1782,8 +1782,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
         unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
         CARETrans_S0, CARETrans_S1, CARETrans_S2, #UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
-        TinyViM_S, TinyViM_B, TinyViM_L,
-        #overlock_xt, overlock_t, overlock_s, overlock_b, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4,
+        #TinyViM_S, TinyViM_B, TinyViM_L, overlock_xt, overlock_t, overlock_s, overlock_b, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4,
         }:
             m = m(*args)
             c2 = m.channel
