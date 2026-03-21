@@ -1797,6 +1797,15 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
+        print(f"DEBUG LAYER {i}:")
+        print(f"  - Module: {t}")
+        print(f"  - From: {f}")
+        print(f"  - Input Channels (c1): {ch[f] if isinstance(f, int) else [ch[x] for x in f]}")
+        print(f"  - Output Channels (c2): {c2}")
+        print(f"  - Args: {args}")
+        print("-" * 30)
+        # -------------------
+
         gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
 
         is_multi_out_backbone = False # Cờ phân biệt
@@ -1811,7 +1820,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             
         m_.np = sum(x.numel() for x in m_.parameters())  
         
-        # Hack index +4 cho tất cả các layer sau backbone
         m_.i, m_.f, m_.type = i + 4, f, t  
         
         if verbose:
@@ -1820,16 +1828,21 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         save.extend(x for x in ([f] if isinstance(f, int) else f) if x != -1)
         layers.append(m_)
         
-        # --- CẬP NHẬT LIST CHANNELS ---
+
         if i == 0:
             ch =[]
             
         if is_multi_out_backbone:
-            ch.extend(c2) # Bung list P3, P4, P5 của backbone
+            ch.extend(c2)
             for _ in range(5 - len(ch)):
                 ch.insert(0, 0)
         else:
-            ch.append(c2) # NẾU LÀ SPLIT: Sẽ append nguyên list [512, 256] vào ch! Lỗi đã được fix.
+            ch.append(c2)
+
+        print(f"HISTORY after Layer {i} ({t}):")
+        for idx, channel_val in enumerate(ch):
+            print(f"  ch[{idx}]: {channel_val}")
+        print("="*40)
             
     return torch.nn.Sequential(*layers), sorted(save)
 
