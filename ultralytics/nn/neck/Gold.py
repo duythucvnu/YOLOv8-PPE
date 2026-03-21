@@ -500,6 +500,9 @@ class Low_FAM(nn.Module):
         self.avg_pool = nn.functional.adaptive_avg_pool2d
     
     def forward(self, x):
+        for j, item in enumerate(x):
+            if item is None:
+                print(f"!!! PHÁT HIỆN NONE TẠI INPUT THỨ {j} TRONG MODULE {self.__class__.__name__} !!!")
         x_l, x_m, x_s, x_n = x
         B, C, H, W = x_s.shape
         # output_size = np.array([H, W])
