@@ -1834,7 +1834,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             
     return torch.nn.Sequential(*layers), sorted(save)
 """ 
- 
         if isinstance(c2, list):
             is_backbone = True
             m_ = m
