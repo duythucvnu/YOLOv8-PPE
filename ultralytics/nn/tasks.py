@@ -1798,38 +1798,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
-        if isinstance(c2, list):
-            is_backbone = True
-            m_ = m
-            m_.backbone = True
-        else:
-            m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
-            t = str(m)[8:-2].replace('__main__.', '')  # module type
-        m.np = sum(x.numel() for x in m_.parameters())  # number params
-        m_.i, m_.f, m_.type = i + 4 if is_backbone else i, f, t  # attach index, 'from' index, type
-
-        if m in [Inject, High_LAF]:
-            # input nums
-            m_.input_nums = len(f)
-        else:
-            m_.input_nums = 1
-
-        if verbose:
-            LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m.np:10.0f}  {t:<60}{str(args):<50}")  # print
-        save.extend(x % (i + 4 if is_backbone else i) for x in ([f] if isinstance(f, int) else f) if
-                    x != -1)  # append to savelist
-        layers.append(m_)
-        if i == 0:
-            ch = []
-        if isinstance(c2, list):
-            ch.extend(c2)
-            for _ in range(5 - len(ch)):
-                ch.insert(0, 0)
-        else:
-            ch.append(c2)
-    return nn.Sequential(*layers), sorted(save)
-
-"""
         gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
 
         is_multi_out_backbone = False # Cờ phân biệt
@@ -1865,7 +1833,40 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             ch.append(c2) # NẾU LÀ SPLIT: Sẽ append nguyên list [512, 256] vào ch! Lỗi đã được fix.
             
     return torch.nn.Sequential(*layers), sorted(save)
-""" 
+
+
+"""
+        if isinstance(c2, list):
+            is_backbone = True
+            m_ = m
+            m_.backbone = True
+        else:
+            m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
+            t = str(m)[8:-2].replace('__main__.', '')  # module type
+        m.np = sum(x.numel() for x in m_.parameters())  # number params
+        m_.i, m_.f, m_.type = i + 4 if is_backbone else i, f, t  # attach index, 'from' index, type
+
+        if m in [Inject, High_LAF]:
+            # input nums
+            m_.input_nums = len(f)
+        else:
+            m_.input_nums = 1
+
+        if verbose:
+            LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m.np:10.0f}  {t:<60}{str(args):<50}")  # print
+        save.extend(x % (i + 4 if is_backbone else i) for x in ([f] if isinstance(f, int) else f) if
+                    x != -1)  # append to savelist
+        layers.append(m_)
+        if i == 0:
+            ch = []
+        if isinstance(c2, list):
+            ch.extend(c2)
+            for _ in range(5 - len(ch)):
+                ch.insert(0, 0)
+        else:
+            ch.append(c2)
+    return nn.Sequential(*layers), sorted(save)
+"""
 
 
 def yaml_model_load(path):
