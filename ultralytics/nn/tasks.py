@@ -1789,10 +1789,44 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
-        neck_multi_outputs = {'Split', 'Low_FAM', 'High_FAM', 'Low_IFM', 'High_IFM'}
+        gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
+
+        is_multi_out_backbone = False # Cờ phân biệt
+        
+        if isinstance(c2, list) and m not in gold_yolo_multi_out:
+            is_multi_out_backbone = True
+            m_ = m
+            m_.backbone = True
+        else:
+            m_ = torch.nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args) 
+            t = str(m)[8:-2].replace("__main__.", "")  
+            
+        m_.np = sum(x.numel() for x in m_.parameters())  
+        
+        # Hack index +4 cho tất cả các layer sau backbone
+        m_.i, m_.f, m_.type = i + 4 if is_multi_out_backbone else i, f, t  
+        
+        if verbose:
+            LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m_.np:10.0f}  {t:<45}{str(args):<30}")
+            
+        save.extend(x % m_.i for x in ([f] if isinstance(f, int) else f) if x != -1)
+        layers.append(m_)
+        
+        # --- CẬP NHẬT LIST CHANNELS ---
+        if i == 0:
+            ch =[]
+            
+        if is_multi_out_backbone:
+            ch.extend(c2) # Bung list P3, P4, P5 của backbone
+            for _ in range(5 - len(ch)):
+                ch.insert(0, 0)
+        else:
+            ch.append(c2) # NẾU LÀ SPLIT: Sẽ append nguyên list [512, 256] vào ch! Lỗi đã được fix.
+            
+    return torch.nn.Sequential(*layers), sorted(save)
  
  
-        if isinstance(c2, list) and m not in neck_multi_outputs:
+"""        if isinstance(c2, list):
             is_backbone = True
             m_ = m
             m_.backbone = True
@@ -1815,13 +1849,14 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         layers.append(m_)
         if i == 0:
             ch = []
-        if isinstance(c2, list) and m not in neck_multi_outputs:
+        if isinstance(c2, list):
             ch.extend(c2)
             for _ in range(5 - len(ch)):
                 ch.insert(0, 0)
         else:
             ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
+"""
 
 
 def yaml_model_load(path):
