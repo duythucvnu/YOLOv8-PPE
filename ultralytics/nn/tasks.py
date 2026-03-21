@@ -1796,7 +1796,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = m.channel
         else:
             c2 = ch[f]
-        """
+
         print(f"DEBUG LAYER {i}:")
         print(f"  - Module: {t}")
         print(f"  - From: {f}")
@@ -1805,7 +1805,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         print(f"  - Args: {args}")
         print("-" * 30)
         # -------------------
-        """
+
         gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
 
         is_multi_out_backbone = False # Cờ phân biệt
