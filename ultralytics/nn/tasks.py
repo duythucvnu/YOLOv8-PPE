@@ -211,7 +211,16 @@ class BaseModel(torch.nn.Module):
                     # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
                     x = x[-1]
                 else:
-                    x = m(x)  # run
+                    try:
+                        if m.input_nums > 1:
+                            # input nums more than one
+                            x = m(*x)  # run
+                        else:
+                            x = m(x)
+                    except AttributeError:
+                        # AttributeError: 'Conv' object has no attribute 'input_nums'
+                        x = m(x)
+                    #x = m(x)  # run
                     y.append(x if m.i in self.save else None)  # save output
                 
                 # if type(x) in {list, tuple}:
