@@ -1792,7 +1792,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         neck_multi_outputs = {'Split', 'Low_FAM', 'High_FAM', 'Low_IFM', 'High_IFM'}
  
  
-        if isinstance(c2, list) and t not in neck_multi_outputs:
+        if isinstance(c2, list) and m not in neck_multi_outputs:
             is_backbone = True
             m_ = m
             m_.backbone = True
@@ -1815,7 +1815,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         layers.append(m_)
         if i == 0:
             ch = []
-        if isinstance(c2, list) and t not in neck_multi_outputs:
+        if isinstance(c2, list) and m not in neck_multi_outputs:
             ch.extend(c2)
             for _ in range(5 - len(ch)):
                 ch.insert(0, 0)
