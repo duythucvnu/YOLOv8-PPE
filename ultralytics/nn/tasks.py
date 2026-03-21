@@ -1796,7 +1796,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = m.channel
         else:
             c2 = ch[f]
-
+        """
         print(f"DEBUG LAYER {i}:")
         print(f"  - Module: {t}")
         print(f"  - From: {f}")
@@ -1805,7 +1805,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         print(f"  - Args: {args}")
         print("-" * 30)
         # -------------------
-
+        """
         gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
 
         is_multi_out_backbone = False # Cờ phân biệt
@@ -1838,11 +1838,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 ch.insert(0, 0)
         else:
             ch.append(c2)
-
+        """
         print(f"HISTORY after Layer {i} ({t}):")
         for idx, channel_val in enumerate(ch):
             print(f"  ch[{idx}]: {channel_val}")
         print("="*40)
+        """
             
     return torch.nn.Sequential(*layers), sorted(save)
 
