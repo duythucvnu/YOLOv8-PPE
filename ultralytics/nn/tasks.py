@@ -1813,12 +1813,12 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         m_.np = sum(x.numel() for x in m_.parameters())  
         
         # Hack index +4 cho tất cả các layer sau backbone
-        m_.i, m_.f, m_.type = i + 4 if is_multi_out_backbone else i, f, t  
+        m_.i, m_.f, m_.type = i + 4, f, t  
         
         if verbose:
             LOGGER.info(f"{i:>3}{str(f):>20}{n_:>3}{m_.np:10.0f}  {t:<45}{str(args):<30}")
             
-        save.extend(x % m_.i for x in ([f] if isinstance(f, int) else f) if x != -1)
+        save.extend(x for x in ([f] if isinstance(f, int) else f) if x != -1)
         layers.append(m_)
         
         # --- CẬP NHẬT LIST CHANNELS ---
