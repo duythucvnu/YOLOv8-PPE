@@ -1705,41 +1705,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m in HFFB:
             c2 = ch[f[0]]
             args = [c2, *args]
-        # --------------GOLD-YOLO--------------
-        """
-        elif m in (Low_FAM, High_FAM, High_LAF):
-            c2 = sum(ch[x] for x in f)
-        elif m is Low_IFM:
-            c1, c2 = ch[f], args[2]
-            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
-                c2 = make_divisible(min(c2, max_channels) * width, 8)
-            args = [c1, *args[:-1], c2]
-        elif m is Low_LAF:
-            c1, c2 = ch[f[1]], args[0]
-            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
-                c2 = make_divisible(min(c2, max_channels) * width, 8)
-            args = [c1, c2, *args[1:]]
-        elif m is Inject:
-            global_index = args[1]
-            c1, c2 = ch[f[1]][global_index], args[0]
-            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
-                c2 = make_divisible(min(c2, max_channels) * width, 8)
-            args = [c1, c2, global_index]
-        elif m is RepBlock:
-            c1, c2 = ch[f], args[0]
-            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
-                c2 = make_divisible(min(c2, max_channels) * width, 8)
-            nums_repeat = max(round(args[1] * depth), 1) if args[1] > 1 else args[1]  # depth gain
-            args = [c1, c2, nums_repeat]
-        elif m is Split:
-            goldyolo = True
-            c2 = []
-            for arg in args:
-                if arg != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
-                    c2.append(make_divisible(min(arg, max_channels) * width, 8))
-            args = [c2]
-        # --------------GOLD-YOLO--------------
-        """
 
         elif m in {AIFI, FocalModulation}:
             args = [ch[f], *args]
@@ -1884,6 +1849,40 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
     return torch.nn.Sequential(*layers), sorted(save)
 """
 
+"""
+        elif m in (Low_FAM, High_FAM, High_LAF):
+            c2 = sum(ch[x] for x in f)
+        elif m is Low_IFM:
+            c1, c2 = ch[f], args[2]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, *args[:-1], c2]
+        elif m is Low_LAF:
+            c1, c2 = ch[f[1]], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is Inject:
+            global_index = args[1]
+            c1, c2 = ch[f[1]][global_index], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, global_index]
+        elif m is RepBlock:
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            nums_repeat = max(round(args[1] * depth), 1) if args[1] > 1 else args[1]  # depth gain
+            args = [c1, c2, nums_repeat]
+        elif m is Split:
+            goldyolo = True
+            c2 = []
+            for arg in args:
+                if arg != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                    c2.append(make_divisible(min(arg, max_channels) * width, 8))
+            args = [c2]
+        # --------------GOLD-YOLO--------------
+"""
 
 def yaml_model_load(path):
     """
