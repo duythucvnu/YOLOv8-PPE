@@ -117,6 +117,7 @@ from ultralytics.nn.neck.C2fDynamic import *
 from ultralytics.nn.neck.C2fGhost import *
 from ultralytics.nn.neck.SAConv import *
 from ultralytics.nn.neck.C2fCIB import *
+from ultralytics.nn.neck.Gold import *
 
 
 class BaseModel(torch.nn.Module):
@@ -1677,7 +1678,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
             BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR, Conv_DyT, C2f_DyT,
             C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_WTConv, 
-            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB,
+            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB,SimConv,
  
         }:
             if args[0] == 'head_channel':
@@ -1692,6 +1693,41 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
                 )  # num heads
  
             args = [c1, c2, *args[1:]]
+
+
+        # --------------GOLD-YOLO--------------
+        elif m in (Low_FAM, High_FAM, High_LAF):
+            c2 = sum(ch[x] for x in f)
+        elif m is Low_IFM:
+            c1, c2 = ch[f], args[2]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, *args[:-1], c2]
+        elif m is Low_LAF:
+            c1, c2 = ch[f[1]], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, *args[1:]]
+        elif m is Inject:
+            global_index = args[1]
+            c1, c2 = ch[f[1]][global_index], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            args = [c1, c2, global_index]
+        elif m is RepBlock:
+            c1, c2 = ch[f], args[0]
+            if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                c2 = make_divisible(min(c2, max_channels) * width, 8)
+            nums_repeat = max(round(args[1] * depth), 1) if args[1] > 1 else args[1]  # depth gain
+            args = [c1, c2, nums_repeat]
+        elif m is Split:
+            goldyolo = True
+            c2 = []
+            for arg in args:
+                if arg != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
+                    c2.append(make_divisible(min(arg, max_channels) * width, 8))
+            args = [c2]
+        # --------------GOLD-YOLO--------------
 
         elif m in {AIFI, FocalModulation}:
             args = [ch[f], *args]

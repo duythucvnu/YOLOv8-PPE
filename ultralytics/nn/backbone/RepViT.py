@@ -198,6 +198,7 @@ class RepViT(nn.Module):
             x = f(x)
             if input_size // x.size(2) in scale:
                 features[scale.index(input_size // x.size(2))] = x
+                print(f"Stage {f}: {x.shape}")
         return features
     
     def switch_to_deploy(self):
