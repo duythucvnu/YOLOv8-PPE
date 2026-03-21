@@ -1797,7 +1797,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = m.channel
         else:
             c2 = ch[f]
-
+"""
         gold_yolo_multi_out = {Split, Low_FAM, High_FAM, Low_IFM, High_IFM}
 
         is_multi_out_backbone = False # Cờ phân biệt
@@ -1833,9 +1833,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             ch.append(c2) # NẾU LÀ SPLIT: Sẽ append nguyên list [512, 256] vào ch! Lỗi đã được fix.
             
     return torch.nn.Sequential(*layers), sorted(save)
+""" 
  
- 
-"""        if isinstance(c2, list):
+        if isinstance(c2, list):
             is_backbone = True
             m_ = m
             m_.backbone = True
@@ -1865,7 +1865,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         else:
             ch.append(c2)
     return nn.Sequential(*layers), sorted(save)
-"""
+
 
 
 def yaml_model_load(path):
