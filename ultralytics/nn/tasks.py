@@ -211,14 +211,13 @@ class BaseModel(torch.nn.Module):
                     # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
                     x = x[-1]
                 else:
-                    try:
-                        if m.input_nums > 1:
-                            # input nums more than one
-                            x = m(*x)  # run
-                        else:
+                    if isinstance(x, list):
+                        try:
+                            x = m(*x)
+                        except TypeError:
                             x = m(x)
-                    except AttributeError:
-                        # AttributeError: 'Conv' object has no attribute 'input_nums'
+                    else:
+                        # Nếu x chỉ là 1 tensor bình thường (Conv, C2f...)
                         x = m(x)
                     #x = m(x)  # run
                     y.append(x if m.i in self.save else None)  # save output
