@@ -1702,7 +1702,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
  
             args = [c1, c2, *args[1:]]
 
-        elif m in HFFB:
+        elif m is HFFB:
             c2 = ch[f[0]]
             args = [c2, *args]
 
