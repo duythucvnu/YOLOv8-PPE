@@ -118,6 +118,7 @@ from ultralytics.nn.neck.C2fGhost import *
 from ultralytics.nn.neck.SAConv import *
 from ultralytics.nn.neck.C2fCIB import *
 from ultralytics.nn.neck.HiFuse import *
+from ultralytics.nn.neck.Slim import *
 
 
 class BaseModel(torch.nn.Module):
@@ -1686,7 +1687,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
             BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR, Conv_DyT, C2f_DyT,
             C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_WTConv, 
-            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB,#SimConv,
+            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB, VoVGSCSP. GSConv, #SimConv,
  
         }:
             if args[0] == 'head_channel':
