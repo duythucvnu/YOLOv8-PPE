@@ -215,10 +215,13 @@ class BaseModel(torch.nn.Module):
                     x = x[-1]
                 else:
                     if isinstance(x, list):
-                        try:
-                            x = m(*x)
-                        except TypeError:
+                        if "Head" in m.type or "Detect" in m.type:
                             x = m(x)
+                        else:
+                            try:
+                                x = m(*x)
+                            except TypeError:
+                                x = m(x)
                     else:
                         # Nếu x chỉ là 1 tensor bình thường (Conv, C2f...)
                         x = m(x)
