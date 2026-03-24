@@ -350,7 +350,7 @@ class BaseModel(torch.nn.Module):
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
         if isinstance(
-            m, Detect, ADDWConvHead
+            m, (Detect, ADDWConvHead)
         ):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect, YOLOEDetect, YOLOESegment
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
@@ -462,7 +462,7 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect, ADDWConvHead):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
+        if isinstance(m, (Detect, ADDWConvHead)):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
             s = 256  # 2x min stride
             m.inplace = self.inplace
 
