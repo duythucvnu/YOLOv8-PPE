@@ -16,10 +16,10 @@ from ultralytics.nn.backbone.RepViT import *
 from ultralytics.nn.backbone.RepViT_DyT import *
 from ultralytics.nn.backbone.MobileNetV4 import *
 from ultralytics.nn.backbone.ConvNeXtV2 import *
-from ultralytics.nn.backbone.UniRepLKNet import *
-from ultralytics.nn.backbone.LSNet import *
-from ultralytics.nn.backbone.MambaOut import *
-from ultralytics.nn.backbone.CareTrans import *
+#from ultralytics.nn.backbone.UniRepLKNet import *
+#from ultralytics.nn.backbone.LSNet import *
+#from ultralytics.nn.backbone.MambaOut import *
+#from ultralytics.nn.backbone.CareTrans import *
 #from ultralytics.nn.backbone.EfficientViM import *
 #from ultralytics.nn.backbone.UniConvNet import *
 #from ultralytics.nn.backbone.TinyViM import *
@@ -110,13 +110,13 @@ from ultralytics.utils.torch_utils import (
 )
 from ultralytics.nn.modules.CARAFE import *
 from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
-from ultralytics.nn.neck.MLLA import *
-from ultralytics.nn.neck.WTConv import *
-from ultralytics.nn.neck.C2fMLLA import *
-from ultralytics.nn.neck.C2fDynamic import *
-from ultralytics.nn.neck.C2fGhost import *
-from ultralytics.nn.neck.SAConv import *
-from ultralytics.nn.neck.C2fCIB import *
+#from ultralytics.nn.neck.MLLA import *
+#from ultralytics.nn.neck.WTConv import *
+#from ultralytics.nn.neck.C2fMLLA import *
+#from ultralytics.nn.neck.C2fDynamic import *
+#from ultralytics.nn.neck.C2fGhost import *
+#from ultralytics.nn.neck.SAConv import *
+#from ultralytics.nn.neck.C2fCIB import *
 #from ultralytics.nn.neck.HiFuse import *
 #from ultralytics.nn.neck.Slim import *
 from ultralytics.nn.neck.DySample import *
@@ -1687,8 +1687,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         if m in {
             Classify, Conv, ConvTranspose, GhostConv, Bottleneck, GhostBottleneck, SPP, SPPF, DWConv, Focus,
             BottleneckCSP, C1, C2, C2f, ELAN1, AConv, SPPELAN, C2fAttn, C3, C3TR, Conv_DyT, C2f_DyT,
-            C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, C2fCIB, C2f_WTConv, 
-            C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB, #VoVGSCSP, GSConv, SimConv,
+            C3Ghost, nn.Conv2d, nn.ConvTranspose2d, DWConvTranspose2d, C3x, RepC3, PSA, SCDown, #C2fCIB, C2f_WTConv, 
+            #C2fMLLABlock, C2f_GhostModule_DynamicConv, C2f_DynamicConv, DynamicConv, SAConv2d, C2f_SAConv, C2fCIB, #VoVGSCSP, GSConv, SimConv,
  
         }:
             if args[0] == 'head_channel':
@@ -1758,8 +1758,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
         MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
         convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
-        unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
-        CARETrans_S0, CARETrans_S1, CARETrans_S2, #UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
+        #unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
+        #CARETrans_S0, CARETrans_S1, CARETrans_S2, #UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
         #TinyViM_S, TinyViM_B, TinyViM_L, overlock_xt, overlock_t, overlock_s, overlock_b, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4,
         }:
             m = m(*args)
