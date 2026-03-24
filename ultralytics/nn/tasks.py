@@ -119,6 +119,7 @@ from ultralytics.nn.neck.SAConv import *
 from ultralytics.nn.neck.C2fCIB import *
 from ultralytics.nn.neck.HiFuse import *
 from ultralytics.nn.neck.Slim import *
+from ultralytics.nn.neck.DySample import *
 
 
 class BaseModel(torch.nn.Module):
@@ -1729,10 +1730,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = sum(ch[x] for x in f)
         elif m is BiFPN_Concat3:
             c2 = sum(ch[x] for x in f)
-        elif m is CARAFE:
-            c1 = ch[f]
-            c2 = c1
-            args = [c1, *args]
+        elif m in {CARAFE, Dy_Sample}:
+            c2 = ch[f]
+            args = [c2, *args]
         elif m in {MLLAttention}:
             c2 = ch[f]
             args = [c2, *args]
