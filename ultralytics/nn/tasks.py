@@ -1733,9 +1733,9 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m in {CARAFE, Dy_Sample}:
             c2 = ch[f]
             args = [c2, *args]
-        elif m in {MLLAttention}:
-            c2 = ch[f]
-            args = [c2, *args]
+        #elif m in {MLLAttention}:
+        #    c2 = ch[f]
+        #    args = [c2, *args]
         elif m in frozenset({Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect}):
             args.append([ch[x] for x in f])
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
