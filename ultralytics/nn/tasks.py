@@ -123,6 +123,7 @@ from ultralytics.nn.neck.DySample import *
 #from ultralytics.nn.neck.AdaptiveHead import *
 #from ultralytics.nn.neck.DBB import *
 #from ultralytics.nn.neck.DynamicHead import *
+from ultralytics.nn.neck.ASFF import *
 
 class BaseModel(torch.nn.Module):
     """
