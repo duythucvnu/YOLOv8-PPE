@@ -122,7 +122,7 @@ from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
 from ultralytics.nn.neck.DySample import *
 #from ultralytics.nn.neck.AdaptiveHead import *
 #from ultralytics.nn.neck.DBB import *
-from ultralytics.nn.neck.DynamicHead import *
+#from ultralytics.nn.neck.DynamicHead import *
 
 class BaseModel(torch.nn.Module):
     """
