@@ -121,8 +121,8 @@ from ultralytics.nn.neck.BiFPN import BiFPN_Concat2, BiFPN_Concat3
 #from ultralytics.nn.neck.Slim import *
 from ultralytics.nn.neck.DySample import *
 #from ultralytics.nn.neck.AdaptiveHead import *
-from ultralytics.nn.neck.DBB import *
-
+#from ultralytics.nn.neck.DBB import *
+from ultralytics.nn.neck.DynamicHead import *
 
 class BaseModel(torch.nn.Module):
     """
@@ -354,8 +354,8 @@ class BaseModel(torch.nn.Module):
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
         if isinstance(
-            m, (Detect, #ADDWConvHead,
-             Detect_DBB)
+            m, (Detect, Detect_dyhead #ADDWConvHead, Detect_DBB
+                )
         ):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect, YOLOEDetect, YOLOESegment
             m.stride = fn(m.stride)
             m.anchors = fn(m.anchors)
@@ -467,8 +467,8 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, #ADDWConvHead,
-         Detect_DBB)):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
+        if isinstance(m, (Detect, Detect_dyhead #ADDWConvHead, Detect_DBB
+        )):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
             s = 256  # 2x min stride
             m.inplace = self.inplace
 
@@ -1743,8 +1743,8 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         #elif m in {MLLAttention}:
         #    c2 = ch[f]
         #    args = [c2, *args]
-        elif m in frozenset({Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, #ADDWConvHead,
-         Detect_DBB}):
+        elif m in frozenset({Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, #ADDWConvHead,Detect_DBB
+            Detect_dyhead}):
             args.append([ch[x] for x in f])
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
             args.insert(1, [ch[x] for x in f])
@@ -1975,8 +1975,8 @@ def guess_model_task(model):
                 return "pose"
             elif isinstance(m, OBB):
                 return "obb"
-            elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect, #ADDWConvHead,
-             Detect_DBB)):
+            elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect, #ADDWConvHead, Detect_DBB
+             Detect_dyhead)):
                 return "detect"
 
     # Guess from model filename
