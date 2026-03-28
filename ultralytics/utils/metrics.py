@@ -147,7 +147,7 @@ def bbox_iou(
         c_area = cw * ch + eps  # convex area
         return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
     if SIoU:
-        print("Use SIoU")
+        #print("Use SIoU")
         cw1, ch1 = (b1_x1 + b1_x2) / 2, (b1_y1 + b1_y2) / 2
         cw2, ch2 = (b2_x1 + b2_x2) / 2, (b2_y1 + b2_y2) / 2
         
