@@ -146,13 +146,9 @@ def bbox_iou(
     union = w1 * h1 + w2 * h2 - inter + eps
     iou = inter / union
 
-    # Nếu chỉ tính IoU cơ bản thì return luôn cho nhẹ máy
     if not (GIoU or DIoU or CIoU or SIoU or EIoU or WIoU):
         return iou
 
-    # ==========================================
-    # GOM CHUNG CÁC BIẾN HÌNH HỌC DÙNG CHO NHIỀU HÀM
-    # ==========================================
     if GIoU or DIoU or CIoU or EIoU or WIoU:
         cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
         ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
@@ -162,9 +158,6 @@ def bbox_iou(
             # center dist**2
             rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) / 4 
 
-    # ==========================================
-    # TÍNH TOÁN CÁC LOSS NÂNG CAO
-    # ==========================================
     if CIoU:
         v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
         with torch.no_grad():
