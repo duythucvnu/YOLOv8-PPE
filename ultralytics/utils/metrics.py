@@ -80,6 +80,11 @@ def bbox_iou(
     GIoU: bool = False,
     DIoU: bool = False,
     CIoU: bool = False,
+    SIoU: bool = False,
+    EIoU: bool = False,
+    WIoU: bool = False,
+    MPDIoU: bool = False,
+    ShapeIoU: bool = False,
     eps: float = 1e-7,
 ) -> torch.Tensor:
     """
@@ -141,6 +146,35 @@ def bbox_iou(
             return iou - rho2 / c2  # DIoU
         c_area = cw * ch + eps  # convex area
         return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
+    if SIoU:
+        print("Use SIoU")
+        cw1, ch1 = (b1_x1 + b1_x2) / 2, (b1_y1 + b1_y2) / 2
+        cw2, ch2 = (b2_x1 + b2_x2) / 2, (b2_y1 + b2_y2) / 2
+        
+        cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)
+        ch = torch.max(b1_y2, b2_y2) - torch.min(b1_y1, b2_y1)
+        
+        s_cw = cw2 - cw1
+        s_ch = ch2 - ch1
+        sigma = torch.pow(s_cw**2 + s_ch**2, 0.5) + eps
+        
+        sin_alpha = torch.abs(s_ch) / sigma
+        sin_beta = torch.abs(s_cw) / sigma
+
+        sin_angle = torch.where(sin_alpha > math.sin(math.pi / 4), sin_beta, sin_alpha)
+        angle_cost = 1 - 2 * torch.pow(torch.sin(torch.arcsin(sin_angle) - math.pi / 4), 2)
+
+        gamma = 2 - angle_cost
+        rho_x = (s_cw / cw) ** 2
+        rho_y = (s_ch / ch) ** 2
+        distance_cost = (1 - torch.exp(-gamma * rho_x)) + (1 - torch.exp(-gamma * rho_y))
+        
+        theta = 4
+        omega_w = torch.abs(w1 - w2) / torch.max(w1, w2)
+        omega_h = torch.abs(h1 - h2) / torch.max(h1, h2)
+        shape_cost = (1 - torch.exp(-omega_w)) ** theta + (1 - torch.exp(-omega_h)) ** theta
+        
+        return iou - (distance_cost + shape_cost) / 2
     return iou  # IoU
 
 
