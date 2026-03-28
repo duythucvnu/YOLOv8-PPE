@@ -73,6 +73,10 @@ def box_iou(box1: torch.Tensor, box2: torch.Tensor, eps: float = 1e-7) -> torch.
     return inter / ((a2 - a1).prod(2) + (b2 - b1).prod(2) - inter + eps)
 
 
+import torch
+import math
+
+# Class WIoU_Scale giữ nguyên không đổi
 class WIoU_Scale:
     ''' monotonous: {
             None: origin v1
@@ -92,8 +96,9 @@ class WIoU_Scale:
     
     @classmethod
     def _update(cls, self):
-        if cls._is_train: cls.iou_mean = (1 - cls._momentum) * cls.iou_mean + \
-                                         cls._momentum * self.iou.detach().mean().item()
+        if cls._is_train: 
+            cls.iou_mean = (1 - cls._momentum) * cls.iou_mean + \
+                           cls._momentum * self.iou.detach().mean().item()
     
     @classmethod
     def _scaled_loss(cls, self, gamma=1.9, delta=3):
@@ -105,6 +110,7 @@ class WIoU_Scale:
                 alpha = delta * torch.pow(gamma, beta - delta)
                 return beta / alpha
         return 1
+
 
 def bbox_iou(
     box1: torch.Tensor,
@@ -120,77 +126,82 @@ def bbox_iou(
     ShapeIoU: bool = False,
     eps: float = 1e-7,
 ) -> torch.Tensor:
-    """
-    Calculate the Intersection over Union (IoU) between bounding boxes.
-
-    This function supports various shapes for `box1` and `box2` as long as the last dimension is 4.
-    For instance, you may pass tensors shaped like (4,), (N, 4), (B, N, 4), or (B, N, 1, 4).
-    Internally, the code will split the last dimension into (x, y, w, h) if `xywh=True`,
-    or (x1, y1, x2, y2) if `xywh=False`.
-
-    Args:
-        box1 (torch.Tensor): A tensor representing one or more bounding boxes, with the last dimension being 4.
-        box2 (torch.Tensor): A tensor representing one or more bounding boxes, with the last dimension being 4.
-        xywh (bool, optional): If True, input boxes are in (x, y, w, h) format. If False, input boxes are in
-                               (x1, y1, x2, y2) format.
-        GIoU (bool, optional): If True, calculate Generalized IoU.
-        DIoU (bool, optional): If True, calculate Distance IoU.
-        CIoU (bool, optional): If True, calculate Complete IoU.
-        eps (float, optional): A small value to avoid division by zero.
-
-    Returns:
-        (torch.Tensor): IoU, GIoU, DIoU, or CIoU values depending on the specified flags.
-    """
-    # Get the coordinates of bounding boxes
-    if xywh:  # transform from xywh to xyxy
+    
+    # 1. Get the coordinates of bounding boxes
+    if xywh:  
         (x1, y1, w1, h1), (x2, y2, w2, h2) = box1.chunk(4, -1), box2.chunk(4, -1)
         w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
         b1_x1, b1_x2, b1_y1, b1_y2 = x1 - w1_, x1 + w1_, y1 - h1_, y1 + h1_
         b2_x1, b2_x2, b2_y1, b2_y2 = x2 - w2_, x2 + w2_, y2 - h2_, y2 + h2_
-    else:  # x1, y1, x2, y2 = box1
+    else:  
         b1_x1, b1_y1, b1_x2, b1_y2 = box1.chunk(4, -1)
         b2_x1, b2_y1, b2_x2, b2_y2 = box2.chunk(4, -1)
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
-    # Intersection area
+    # 2. Intersection, Union, and Base IoU
     inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
         b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
     ).clamp_(0)
-
-    # Union Area
     union = w1 * h1 + w2 * h2 - inter + eps
-
-    # IoU
     iou = inter / union
-    self = WIoU_Scale(1 - (inter / union))
-    if CIoU or DIoU or GIoU:
-        cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex (smallest enclosing box) width
+
+    # Nếu chỉ tính IoU cơ bản thì return luôn cho nhẹ máy
+    if not (GIoU or DIoU or CIoU or SIoU or EIoU or WIoU):
+        return iou
+
+    # ==========================================
+    # GOM CHUNG CÁC BIẾN HÌNH HỌC DÙNG CHO NHIỀU HÀM
+    # ==========================================
+    if GIoU or DIoU or CIoU or EIoU or WIoU:
+        cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
         ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
-        if CIoU or DIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
+        
+        if DIoU or CIoU or EIoU or WIoU:
             c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
-            rho2 = (
-                (b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)
-            ) / 4  # center dist**2
-            if CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-                v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
-                with torch.no_grad():
-                    alpha = v / (v - iou + (1 + eps))
-                return iou - (rho2 / c2 + v * alpha)  # CIoU
-            return iou - rho2 / c2  # DIoU
-        c_area = cw * ch + eps  # convex area
-        return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
+            # center dist**2
+            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) / 4 
+
+    # ==========================================
+    # TÍNH TOÁN CÁC LOSS NÂNG CAO
+    # ==========================================
+    if CIoU:
+        v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
+        with torch.no_grad():
+            alpha = v / (v - iou + (1 + eps))
+        return iou - (rho2 / c2 + v * alpha)
+        
+    if DIoU:
+        return iou - rho2 / c2
+        
+    if GIoU:
+        c_area = cw * ch + eps
+        return iou - (c_area - union) / c_area
+
+    if EIoU:
+        rho2_w = (w2 - w1).pow(2)
+        rho2_h = (h2 - h1).pow(2)
+        center_penalty = rho2 / c2
+        width_penalty = rho2_w / (cw.pow(2) + eps)
+        height_penalty = rho2_h / (ch.pow(2) + eps)
+        return iou - (center_penalty + width_penalty + height_penalty)
+        
+    if WIoU:
+        c2_detached = c2.detach() 
+        wiou_scaler = WIoU_Scale(1 - iou)
+        r = getattr(WIoU_Scale, '_scaled_loss')(wiou_scaler)
+        wiou_loss_v1 = (1 - iou) * torch.exp(rho2 / c2_detached)
+        
+        return r, wiou_loss_v1, iou
+
     if SIoU:
-        #print("Use SIoU")
-        cw1, ch1 = (b1_x1 + b1_x2) / 2, (b1_y1 + b1_y2) / 2
-        cw2, ch2 = (b2_x1 + b2_x2) / 2, (b2_y1 + b2_y2) / 2
-        
-        cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)
-        ch = torch.max(b1_y2, b2_y2) - torch.min(b1_y1, b2_y1)
-        
-        s_cw = cw2 - cw1
-        s_ch = ch2 - ch1
+        s_cw = (b2_x1 + b2_x2) / 2 - (b1_x1 + b1_x2) / 2
+        s_ch = (b2_y1 + b2_y2) / 2 - (b1_y1 + b1_y2) / 2
         sigma = torch.pow(s_cw**2 + s_ch**2, 0.5) + eps
+        
+        # SIoU dùng lại cw, ch chung được khai báo bên dưới cho gọn
+        cw_siou = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)
+        ch_siou = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)
         
         sin_alpha = torch.abs(s_ch) / sigma
         sin_beta = torch.abs(s_cw) / sigma
@@ -199,8 +210,8 @@ def bbox_iou(
         angle_cost = 1 - 2 * torch.pow(torch.sin(torch.arcsin(sin_angle) - math.pi / 4), 2)
 
         gamma = 2 - angle_cost
-        rho_x = (s_cw / cw) ** 2
-        rho_y = (s_ch / ch) ** 2
+        rho_x = (s_cw / cw_siou) ** 2
+        rho_y = (s_ch / ch_siou) ** 2
         distance_cost = (1 - torch.exp(-gamma * rho_x)) + (1 - torch.exp(-gamma * rho_y))
         
         theta = 4
@@ -209,10 +220,8 @@ def bbox_iou(
         shape_cost = (1 - torch.exp(-omega_w)) ** theta + (1 - torch.exp(-omega_h)) ** theta
         
         return iou - (distance_cost + shape_cost) / 2
-    if WIoU:
-        print("Use WIoU")
-        return getattr(WIoU_Scale, '_scaled_loss')(self), (1 - iou) * torch.exp((rho2 / c2)), iou
-    return iou  # IoU
+
+    return iou
 
 
 def mask_iou(mask1: torch.Tensor, mask2: torch.Tensor, eps: float = 1e-7) -> torch.Tensor:
