@@ -109,10 +109,6 @@ class WIoU_Scale:
         return 1
 
 
-import torch
-import math
-
-#[Class WIoU_Scale giữ nguyên không đổi...]
 
 def bbox_iou(
     box1: torch.Tensor,
@@ -125,11 +121,11 @@ def bbox_iou(
     EIoU: bool = False,
     WIoU: bool = False,
     MPDIoU: bool = False,
-    ShapeIoU: bool = False, # Bật cờ Shape-IoU
+    ShapeIoU: bool = False,
+    InterpIoU: bool = False,
     eps: float = 1e-7,
 ) -> torch.Tensor:
     
-    # 1. Chuyển đổi tọa độ
     if xywh:  
         (x1, y1, w1, h1), (x2, y2, w2, h2) = box1.chunk(4, -1), box2.chunk(4, -1)
         w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
@@ -141,19 +137,35 @@ def bbox_iou(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
-    # 2. Tính Base IoU
     inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
         b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
     ).clamp_(0)
     union = w1 * h1 + w2 * h2 - inter + eps
     iou = inter / union
 
+    if InterpIoU:
+        alpha_low = 0.90
+        alpha_high = 0.99
+        alpha = (1.0 - iou).clamp(alpha_low, alpha_high)
+        
+        b_int_x1 = (1 - alpha) * b1_x1 + alpha * b2_x1
+        b_int_y1 = (1 - alpha) * b1_y1 + alpha * b2_y1
+        b_int_x2 = (1 - alpha) * b1_x2 + alpha * b2_x2
+        b_int_y2 = (1 - alpha) * b1_y2 + alpha * b2_y2
+        
+        inter_int = (b_int_x2.minimum(b2_x2) - b_int_x1.maximum(b2_x1)).clamp_(0) * \
+                    (b_int_y2.minimum(b2_y2) - b_int_y1.maximum(b2_y1)).clamp_(0)
+                    
+        w_int = b_int_x2 - b_int_x1
+        h_int = b_int_y2 - b_int_y1
+        union_int = w_int * h_int + w2 * h2 - inter_int + eps
+        iou_int = inter_int / union_int
+        
+        return iou + iou_int - 1.0
+
     if not (GIoU or DIoU or CIoU or SIoU or EIoU or WIoU or MPDIoU or ShapeIoU):
         return iou
 
-    # ==========================================
-    # KHUNG BAO NGOÀI & KHOẢNG CÁCH TÂM CHUNG
-    # ==========================================
     cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  
     ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  
     c2 = cw.pow(2) + ch.pow(2) + eps  
@@ -162,42 +174,27 @@ def bbox_iou(
     s_ch = (b2_y1 + b2_y2) / 2 - (b1_y1 + b1_y2) / 2
     rho2 = s_cw.pow(2) + s_ch.pow(2)
 
-    # ==========================================
-    # Shape-IoU Logic (2024)
-    # ==========================================
     if ShapeIoU:
-        # scale hyperparameter: kiểm soát độ nhạy theo kích thước box (mặc định = 0.0 trong repo tác giả cho general object detection)
-        # Nếu scale = 0, ww và hh sẽ bằng 1 (tắt tác động của kích thước). 
-        # Để bật Shape-IoU hoàn chỉnh trên dataset nhỏ, scale thường đặt là 0.5
         scale = 0.0 
-        
-        # Tính trọng số hình dáng từ Ground Truth (w2, h2)
+
         wl = w2 ** scale
         hl = h2 ** scale
         ww = 2 * wl / (wl + hl + eps)
         hh = 2 * hl / (wl + hl + eps)
         
-        # 1. Distance Shape Penalty (Vắt chéo: x đi với hh, y đi với ww)
         distance_shape = hh * (s_cw ** 2) / c2 + ww * (s_ch ** 2) / c2
         
-        # 2. Shape Penalty (Bóp sai lệch w/h, cũng vắt chéo hệ số)
         omega_w = hh * torch.abs(w1 - w2) / torch.max(w1, w2)
         omega_h = ww * torch.abs(h1 - h2) / torch.max(h1, h2)
         
         theta = 4.0
         shape_cost = (1 - torch.exp(-omega_w)) ** theta + (1 - torch.exp(-omega_h)) ** theta
-        
-        # 3. Shape-IoU = IoU - Khoảng cách - 0.5 * Shape
+
         return iou - distance_shape - 0.5 * shape_cost
 
     if MPDIoU:
-        # d1_sq: Khoảng cách bình phương góc Top-Left
         d1_sq = (b2_x1 - b1_x1).pow(2) + (b2_y1 - b1_y1).pow(2)
-        
-        # d2_sq: Khoảng cách bình phương góc Bottom-Right
         d2_sq = (b2_x2 - b1_x2).pow(2) + (b2_y2 - b1_y2).pow(2)
-        
-        # Ở đây c2 đóng vai trò là (w^2 + h^2)
         return iou - d1_sq / c2 - d2_sq / c2
 
     if CIoU:
