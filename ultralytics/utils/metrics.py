@@ -73,10 +73,7 @@ def box_iou(box1: torch.Tensor, box2: torch.Tensor, eps: float = 1e-7) -> torch.
     return inter / ((a2 - a1).prod(2) + (b2 - b1).prod(2) - inter + eps)
 
 
-import torch
-import math
 
-# Class WIoU_Scale giữ nguyên không đổi
 class WIoU_Scale:
     ''' monotonous: {
             None: origin v1
@@ -112,6 +109,11 @@ class WIoU_Scale:
         return 1
 
 
+import torch
+import math
+
+#[Class WIoU_Scale giữ nguyên không đổi...]
+
 def bbox_iou(
     box1: torch.Tensor,
     box2: torch.Tensor,
@@ -127,7 +129,6 @@ def bbox_iou(
     eps: float = 1e-7,
 ) -> torch.Tensor:
     
-    # 1. Get the coordinates of bounding boxes
     if xywh:  
         (x1, y1, w1, h1), (x2, y2, w2, h2) = box1.chunk(4, -1), box2.chunk(4, -1)
         w1_, h1_, w2_, h2_ = w1 / 2, h1 / 2, w2 / 2, h2 / 2
@@ -139,24 +140,31 @@ def bbox_iou(
         w1, h1 = b1_x2 - b1_x1, b1_y2 - b1_y1 + eps
         w2, h2 = b2_x2 - b2_x1, b2_y2 - b2_y1 + eps
 
-    # 2. Intersection, Union, and Base IoU
     inter = (b1_x2.minimum(b2_x2) - b1_x1.maximum(b2_x1)).clamp_(0) * (
         b1_y2.minimum(b2_y2) - b1_y1.maximum(b2_y1)
     ).clamp_(0)
     union = w1 * h1 + w2 * h2 - inter + eps
     iou = inter / union
 
-    if not (GIoU or DIoU or CIoU or SIoU or EIoU or WIoU):
+    if not (GIoU or DIoU or CIoU or SIoU or EIoU or WIoU or MPDIoU):
         return iou
 
-    if GIoU or DIoU or CIoU or EIoU or WIoU:
-        cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # convex width
-        ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # convex height
+    cw = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)  # Convex width
+    ch = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)  # Convex height
+    
+    c2 = cw.pow(2) + ch.pow(2) + eps  
+
+    rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) / 4 
+
+    if MPDIoU:
+        # d1_sq: Khoảng cách bình phương góc Top-Left
+        d1_sq = (b2_x1 - b1_x1).pow(2) + (b2_y1 - b1_y1).pow(2)
         
-        if DIoU or CIoU or EIoU or WIoU:
-            c2 = cw.pow(2) + ch.pow(2) + eps  # convex diagonal squared
-            # center dist**2
-            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2).pow(2) + (b2_y1 + b2_y2 - b1_y1 - b1_y2).pow(2)) / 4 
+        # d2_sq: Khoảng cách bình phương góc Bottom-Right
+        d2_sq = (b2_x2 - b1_x2).pow(2) + (b2_y2 - b1_y2).pow(2)
+        
+        # Ở đây c2 đóng vai trò là (w^2 + h^2)
+        return iou - d1_sq / c2 - d2_sq / c2
 
     if CIoU:
         v = (4 / math.pi**2) * ((w2 / h2).atan() - (w1 / h1).atan()).pow(2)
@@ -167,52 +175,38 @@ def bbox_iou(
     if DIoU:
         return iou - rho2 / c2
         
-    if GIoU:
-        c_area = cw * ch + eps
-        return iou - (c_area - union) / c_area
-
     if EIoU:
         rho2_w = (w2 - w1).pow(2)
         rho2_h = (h2 - h1).pow(2)
-        center_penalty = rho2 / c2
-        width_penalty = rho2_w / (cw.pow(2) + eps)
-        height_penalty = rho2_h / (ch.pow(2) + eps)
-        return iou - (center_penalty + width_penalty + height_penalty)
+        return iou - (rho2 / c2 + rho2_w / (cw.pow(2) + eps) + rho2_h / (ch.pow(2) + eps))
         
     if WIoU:
         c2_detached = c2.detach() 
         wiou_scaler = WIoU_Scale(1 - iou)
         r = getattr(WIoU_Scale, '_scaled_loss')(wiou_scaler)
         wiou_loss_v1 = (1 - iou) * torch.exp(rho2 / c2_detached)
-        
         return r, wiou_loss_v1, iou
 
     if SIoU:
         s_cw = (b2_x1 + b2_x2) / 2 - (b1_x1 + b1_x2) / 2
         s_ch = (b2_y1 + b2_y2) / 2 - (b1_y1 + b1_y2) / 2
         sigma = torch.pow(s_cw**2 + s_ch**2, 0.5) + eps
-        
-        # SIoU dùng lại cw, ch chung được khai báo bên dưới cho gọn
-        cw_siou = b1_x2.maximum(b2_x2) - b1_x1.minimum(b2_x1)
-        ch_siou = b1_y2.maximum(b2_y2) - b1_y1.minimum(b2_y1)
-        
         sin_alpha = torch.abs(s_ch) / sigma
         sin_beta = torch.abs(s_cw) / sigma
-
         sin_angle = torch.where(sin_alpha > math.sin(math.pi / 4), sin_beta, sin_alpha)
         angle_cost = 1 - 2 * torch.pow(torch.sin(torch.arcsin(sin_angle) - math.pi / 4), 2)
-
         gamma = 2 - angle_cost
-        rho_x = (s_cw / cw_siou) ** 2
-        rho_y = (s_ch / ch_siou) ** 2
+        rho_x = (s_cw / cw) ** 2
+        rho_y = (s_ch / ch) ** 2
         distance_cost = (1 - torch.exp(-gamma * rho_x)) + (1 - torch.exp(-gamma * rho_y))
-        
         theta = 4
-        omega_w = torch.abs(w1 - w2) / torch.max(w1, w2)
-        omega_h = torch.abs(h1 - h2) / torch.max(h1, h2)
-        shape_cost = (1 - torch.exp(-omega_w)) ** theta + (1 - torch.exp(-omega_h)) ** theta
-        
+        shape_cost = (1 - torch.exp(-torch.abs(w1 - w2) / torch.max(w1, w2))) ** theta + \
+                     (1 - torch.exp(-torch.abs(h1 - h2) / torch.max(h1, h2))) ** theta
         return iou - (distance_cost + shape_cost) / 2
+
+    if GIoU:
+        c_area = cw * ch + eps
+        return iou - (c_area - union) / c_area
 
     return iou
 
