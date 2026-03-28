@@ -209,6 +209,7 @@ def bbox_iou(
         
         return iou - (distance_cost + shape_cost) / 2
     if WIoU:
+        print("Use WIoU")
         return getattr(WIoU_Scale, '_scaled_loss')(self), (1 - iou) * torch.exp((rho2 / c2)), iou
     return iou  # IoU
 
