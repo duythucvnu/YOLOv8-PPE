@@ -383,7 +383,8 @@ class BaseTrainer:
 
             if RANK in {-1, 0}:
                 LOGGER.info(self.progress_string())
-                pbar = TQDM(enumerate(self.train_loader), total=nb)
+                #pbar = TQDM(enumerate(self.train_loader), total=nb)
+                pbar = enumerate(self.train_loader)
             self.tloss = None
             for i, batch in pbar:
                 self.run_callbacks("on_train_batch_start")
@@ -432,6 +433,7 @@ class BaseTrainer:
                 # Log
                 if RANK in {-1, 0}:
                     loss_length = self.tloss.shape[0] if len(self.tloss.shape) else 1
+                    """
                     pbar.set_description(
                         ("%11s" * 2 + "%11.4g" * (2 + loss_length))
                         % (
@@ -442,6 +444,7 @@ class BaseTrainer:
                             batch["img"].shape[-1],  # imgsz, i.e 640
                         )
                     )
+                    """
                     self.run_callbacks("on_batch_end")
                     if self.args.plots and ni in self.plot_idx:
                         self.plot_training_samples(batch, ni)
