@@ -611,7 +611,12 @@ class OBBModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the model."""
         return v8OBBLoss(self)
-
+    def init_criterion(self):        
+        m = self.model[-1]
+        if isinstance(m, DetectHF):
+            return v8HFDetectionLoss(self)
+            
+        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 class SegmentationModel(DetectionModel):
     """
