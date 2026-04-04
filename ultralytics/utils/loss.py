@@ -14,6 +14,8 @@ from ultralytics.utils.torch_utils import autocast
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
+from torchvision.ops import box_iou
+
 
 class VarifocalLoss(nn.Module):
     """
@@ -484,6 +486,155 @@ class v8SegmentationLoss(v8DetectionLoss):
                 loss += (proto * 0).sum() + (pred_masks * 0).sum()  # inf sums may lead to nan loss
 
         return loss / fg_mask.sum()
+
+
+
+class v8HFDetectionLoss(v8DetectionLoss):
+    """
+    Custom loss for YOLOv8-HF (Hierarchical-Flat) model.
+    Combines Focal Loss (to handle severe background class imbalance) 
+    and Context-aware Loss for objects inside a Person.
+    """
+
+    def __init__(self, model, tal_topk: int = 10):
+        super().__init__(model, tal_topk)
+        
+        # Focal loss for flat branch
+        # gamma=2.0, alpha=0.25 are standard values from RetinaNet
+        # to heavily penalize false positives from background.
+        self.focal_loss = FocalLoss(gamma=2.0, alpha=0.25)
+        
+        # Loss for hierachical branch
+        self.hier_bce = nn.BCEWithLogitsLoss(reduction="mean")
+        
+        # Class IDs
+        self.person_cls_id = 7  
+        self.nc_hier = self.nc
+        
+        # Weight for hierarchical branch
+        self.lambda_hier = 1.5 
+
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Compute total loss: L_total = L_flat (Box, Cls_Focal, DFL) + L_hierarchical"""
+        loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
+        
+        # Unpack outputs from DetectHF (flat_feats, hier_preds)
+        flat_feats, hier_preds = preds
+        
+        # Loss for flat branch
+        pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+
+        dtype = pred_scores.dtype
+        batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+        anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
+
+        # Prepare original targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+        # Decode bounding boxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
+
+        # Assign targets to anchors (TaskAlignedAssigner)
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            pred_scores.detach().sigmoid(),
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+        )
+
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum 
+
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+
+        if hier_preds is not None:
+            _, hier_cls_pred, rois = hier_preds
+            
+            # Build multi-label targets for each RoI (person region)
+            hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc)
+            
+            if hier_targets is not None:
+                # Compute BCE loss between RoI predictions and actual labels inside each person
+                loss[3] = self.hier_bce(hier_cls_pred, hier_targets)
+
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # classification gain (Focal)
+        loss[2] *= self.hyp.dfl  # dfl gain
+        loss[3] *= self.lambda_hier # hierarchical gain (custom)
+
+        # Return in YOLO standard format
+        return loss.sum() * batch_size, loss.detach()
+
+    def _build_hier_targets(self, rois: torch.Tensor, targets: torch.Tensor, batch_size: int, num_classes: int) -> torch.Tensor:
+        """
+        Matching function: find objects (gloves, boots, etc.) 
+        that lie inside a person's bounding box (RoI).
+        
+        Args:
+            rois: shape (num_rois, 5) format [batch_idx, x1, y1, x2, y2]
+            targets: shape (batch_size, max_targets, 5) format [cls, x1, y1, x2, y2]
+        """
+        num_rois = rois.shape[0]
+        if num_rois == 0:
+            return None
+            
+        # Multi-hot targets
+        hier_targets = torch.zeros((num_rois, num_classes), device=self.device, dtype=torch.float32)
+        
+        for i in range(num_rois):
+            b_idx = int(rois[i, 0].item())
+            roi_box = rois[i, 1:5] # [x1, y1, x2, y2]
+            
+            # Get all targets in this image
+            batch_targets = targets[b_idx]
+            valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
+            b_targets = batch_targets[valid_mask] # [num_valid_targets, 5]
+            
+            if b_targets.shape[0] == 0:
+                continue
+                
+            gt_classes = b_targets[:, 0].long()
+            gt_boxes = b_targets[:, 1:5]
+            
+            # Compute intersection area between PPE and person box
+            x1 = torch.max(roi_box[0], gt_boxes[:, 0])
+            y1 = torch.max(roi_box[1], gt_boxes[:, 1])
+            x2 = torch.min(roi_box[2], gt_boxes[:, 2])
+            y2 = torch.min(roi_box[3], gt_boxes[:, 3])
+            
+            inter_w = (x2 - x1).clamp(min=0)
+            inter_h = (y2 - y1).clamp(min=0)
+            inter_area = inter_w * inter_h
+            
+            # Area of PPE object
+            gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
+            
+            # If 50% of PPE area lies inside the person box, assign it to that person
+            overlap_ratio = inter_area / (gt_area + 1e-6)
+            inside_mask = overlap_ratio > 0.5
+            
+            # Mark classes present inside this person
+            classes_inside = gt_classes[inside_mask]
+            if len(classes_inside) > 0:
+                hier_targets[i, classes_inside] = 1.0
+                
+        return hier_targets
 
 
 class v8PoseLoss(v8DetectionLoss):

@@ -16,6 +16,7 @@ from ultralytics.utils import LOGGER, RANK
 from ultralytics.utils.patches import override_configs
 from ultralytics.utils.plotting import plot_images, plot_labels, plot_results
 from ultralytics.utils.torch_utils import de_parallel, torch_distributed_zero_first
+from ultralytics.utils.loss import v8HFDetectionLoss
 
 
 class DetectionTrainer(BaseTrainer):
@@ -144,9 +145,12 @@ class DetectionTrainer(BaseTrainer):
             model.load(weights)
         return model
 
+    def get_criterion(self):
+        return v8HFDetectionLoss(self.model)
+
     def get_validator(self):
         """Return a DetectionValidator for YOLO model validation."""
-        self.loss_names = "box_loss", "cls_loss", "dfl_loss"
+        self.loss_names = "box_loss", "cls_loss", "dfl_loss", "hier_loss" 
         return yolo.detect.DetectionValidator(
             self.test_loader, save_dir=self.save_dir, args=copy(self.args), _callbacks=self.callbacks
         )
