@@ -96,6 +96,7 @@ from ultralytics.utils.loss import (
     v8OBBLoss,
     v8PoseLoss,
     v8SegmentationLoss,
+    v8HFDetectionLoss,
 )
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.plotting import feature_visualization
@@ -476,10 +477,20 @@ class DetectionModel(BaseModel):
             m.inplace = self.inplace
 
             def _forward(x):
-                """Perform a forward pass through the model, handling different Detect subclass types accordingly."""
+                if self.end2end:
+                    return self.forward(x)["one2many"]
+                
+                res = self.forward(x)
+                if isinstance(m, DetectHF):
+                    return res[0]  # Lấy flat_feats (danh sách các feature maps P3, P4, P5)
+                
+                return res[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else res
+            """
+            def _forward(x):
                 if self.end2end:
                     return self.forward(x)["one2many"]
                 return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
+            """
 
             self.model.eval()  # Avoid changing batch statistics until training begins
             m.training = True  # Setting it to True to properly return strides
@@ -564,7 +575,7 @@ class DetectionModel(BaseModel):
         return y
 
     def init_criterion(self):
-        """Initialize the loss criterion for the DetectionModel."""
+        """Initialize the loss criterion for the DetectionModel."""        
         return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 
