@@ -371,39 +371,38 @@ class DetectHF(Detect):
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
     def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-        """
-        Internal function: Filter Flat predictions to get bounding boxes of the 'person' class.
-        Required format for torchvision.ops.roi_align: [batch_index, x1, y1, x2, y2]
-        """
-        # preds shape: (batch_size, num_anchors, 4 + nc)
         rois_list = []
+
+        boxes, scores = preds.split([4, self.nc], dim=1)
         
-        # Split boxes and class scores
-        boxes, scores = preds.split([4, self.nc], dim=-1)
-        person_scores = scores[..., self.person_cls_id] # Only take scores for the person class
+        boxes = boxes.permute(0, 2, 1).contiguous()   # -> (B, N, 4)
+        scores = scores.permute(0, 2, 1).contiguous() # -> (B, N, nc)
+        
+        person_scores = scores[..., self.person_cls_id] # Get scores for the "person" class
         
         for b in range(batch_size):
-            # Filter boxes with person score > threshold
+            # Filter by confidence threshold
             mask = person_scores[b] > conf_thres
             b_boxes = boxes[b][mask]
             b_scores = person_scores[b][mask]
             
             if b_boxes.shape[0] == 0:
                 continue
-                
-            # Apply NMS (Non-Maximum Suppression) to remove duplicate person boxes
-            # Convert xywh -> xyxy for NMS
-            x, y, w, h = b_boxes.unbind(1)
-            b_boxes_xyxy = torch.stack([x - w/2, y - h/2, x + w/2, y + h/2], dim=1)
             
-            keep = torchvision.ops.nms(b_boxes_xyxy, b_scores, iou_threshold=0.45)
-            final_boxes = b_boxes_xyxy[keep]
+            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
+            final_boxes = b_boxes[keep]
             
-            # Add batch_index (b) as the first column
+            # Create tensor [batch_idx, x1, y1, x2, y2]
             batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
             b_rois = torch.cat((batch_idx, final_boxes), dim=1)
             rois_list.append(b_rois)
             
+        if len(rois_list) > 0:
+            return torch.cat(rois_list, dim=0)
+        
+        # Return empty tensor with correct shape if no person is detected
+        return torch.empty((0, 5), device=preds.device)
+                
         if len(rois_list) > 0:
             return torch.cat(rois_list, dim=0)
         return None
