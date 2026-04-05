@@ -366,7 +366,7 @@ class DetectHF(Detect):
         scores = scores.permute(0, 2, 1).contiguous() 
         person_scores = scores[..., self.person_cls_id] 
         
-        MAX_ROIS = 30 # CHỐT CỨNG SỐ LƯỢNG ROI LÀ 15 CHO MỌI BỨC ẢNH
+        MAX_ROIS = 20 # CHỐT CỨNG SỐ LƯỢNG ROI LÀ 15 CHO MỌI BỨC ẢNH
         rois_list = []
         
         for b in range(batch_size):
