@@ -370,37 +370,37 @@ class DetectHF(Detect):
         y_flat = self._inference(flat_feats)
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
-def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-        rois_list = []
-        boxes, scores = preds.split([4, self.nc], dim=1)
-        
-        boxes = boxes.permute(0, 2, 1).contiguous()
-        scores = scores.permute(0, 2, 1).contiguous()
-        person_scores = scores[..., self.person_cls_id]
-        
-        MAX_ROIS_PER_IMAGE = 30 
-        
-        for b in range(batch_size):
-            mask = person_scores[b] > conf_thres
-            b_boxes = boxes[b][mask]
-            b_scores = person_scores[b][mask]
+    def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
+            rois_list = []
+            boxes, scores = preds.split([4, self.nc], dim=1)
             
-            if b_boxes.shape[0] == 0:
-                continue
+            boxes = boxes.permute(0, 2, 1).contiguous()
+            scores = scores.permute(0, 2, 1).contiguous()
+            person_scores = scores[..., self.person_cls_id]
+            
+            MAX_ROIS_PER_IMAGE = 30 
+            
+            for b in range(batch_size):
+                mask = person_scores[b] > conf_thres
+                b_boxes = boxes[b][mask]
+                b_scores = person_scores[b][mask]
                 
-            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
-            final_boxes = b_boxes[keep]
-            
-            if final_boxes.shape[0] > MAX_ROIS_PER_IMAGE:
-                final_boxes = final_boxes[:MAX_ROIS_PER_IMAGE]
-            
-            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-            rois_list.append(b_rois)
-            
-        if len(rois_list) > 0:
-            return torch.cat(rois_list, dim=0)
-        return torch.empty((0, 5), device=preds.device)
+                if b_boxes.shape[0] == 0:
+                    continue
+                    
+                keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
+                final_boxes = b_boxes[keep]
+                
+                if final_boxes.shape[0] > MAX_ROIS_PER_IMAGE:
+                    final_boxes = final_boxes[:MAX_ROIS_PER_IMAGE]
+                
+                batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
+                b_rois = torch.cat((batch_idx, final_boxes), dim=1)
+                rois_list.append(b_rois)
+                
+            if len(rois_list) > 0:
+                return torch.cat(rois_list, dim=0)
+            return torch.empty((0, 5), device=preds.device)
 
 class OBB(Detect):
     """
