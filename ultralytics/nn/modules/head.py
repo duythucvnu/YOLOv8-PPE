@@ -360,7 +360,7 @@ class DetectHF(Detect):
         y_flat = self._inference(flat_feats)
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
-def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
+    def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
         boxes, scores = preds.split([4, self.nc], dim=1)
         boxes = boxes.permute(0, 2, 1).contiguous()   
         scores = scores.permute(0, 2, 1).contiguous() 
