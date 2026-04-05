@@ -388,6 +388,8 @@ class BaseTrainer:
             self.tloss = None
             for i, batch in pbar:
                 self.run_callbacks("on_train_batch_start")
+                if i % 50 == 0:
+                    torch.cuda.empty_cache()
                 # Warmup
                 ni = i + nb * epoch
                 if ni <= nw:
