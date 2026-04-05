@@ -51,39 +51,26 @@ class VarifocalLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
-    """
-    Wraps focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5).
-
-    Implements the Focal Loss function for addressing class imbalance by down-weighting easy examples and focusing
-    on hard negatives during training.
-
-    Attributes:
-        gamma (float): The focusing parameter that controls how much the loss focuses on hard-to-classify examples.
-        alpha (torch.Tensor): The balancing factor used to address class imbalance.
-    """
-
     def __init__(self, gamma: float = 1.5, alpha: float = 0.25):
-        """Initialize FocalLoss class with focusing and balancing parameters."""
         super().__init__()
         self.gamma = gamma
         self.alpha = torch.tensor(alpha)
 
     def forward(self, pred: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
-        """Calculate focal loss with modulating factors for class imbalance."""
         loss = F.binary_cross_entropy_with_logits(pred, label, reduction="none")
-        # p_t = torch.exp(-loss)
-        # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
-
-        # TF implementation https://github.com/tensorflow/addons/blob/v0.7.1/tensorflow_addons/losses/focal_loss.py
-        pred_prob = pred.sigmoid()  # prob from logits
+        pred_prob = pred.sigmoid()
         p_t = label * pred_prob + (1 - label) * (1 - pred_prob)
+        
+        p_t = p_t.clamp(min=1e-7, max=1-1e-7) 
         modulating_factor = (1.0 - p_t) ** self.gamma
         loss *= modulating_factor
+        
         if (self.alpha > 0).any():
             self.alpha = self.alpha.to(device=pred.device, dtype=pred.dtype)
             alpha_factor = label * self.alpha + (1 - label) * (1 - self.alpha)
             loss *= alpha_factor
-        return loss.mean(1).sum()
+
+        return loss.sum()
 
 
 class DFLoss(nn.Module):
@@ -512,7 +499,7 @@ class v8HFDetectionLoss(v8DetectionLoss):
         self.nc_hier = self.nc - 1
         
         # Weight for hierarchical branch
-        self.lambda_hier = 1.5 
+        self.lambda_hier = 1.25 
 
     def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
             loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
@@ -568,10 +555,11 @@ class v8HFDetectionLoss(v8DetectionLoss):
                 )
             if hier_preds is not None:
                 h_box, h_cls, rois = hier_preds
+                num_rois = rois.shape[0]
                 hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
                 
                 if hier_targets is not None:
-                    loss[3] = self.hier_bce(h_cls, hier_targets)
+                    loss[3] = self.hier_bce(h_cls, hier_targets)/ num_rois
 
             loss[0] *= self.hyp.box
             loss[1] *= self.hyp.cls
