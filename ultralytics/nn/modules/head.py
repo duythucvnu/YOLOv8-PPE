@@ -310,7 +310,7 @@ class DetectHF(Detect):
         
         self.roi_size = (7, 7) # Standard size for RoI Align
         
-        # Ưxtract features from P4
+        # Extract features from P4
         roi_channels = ch[1] 
         
         # CNN network to process RoI regions (7x7) into box and class predictions
@@ -351,7 +351,7 @@ class DetectHF(Detect):
             # Perform RoI Align
             person_crops = roi_align(
                 feat_p4, 
-                rois, 
+                rois.detach(), 
                 output_size=self.roi_size, 
                 spatial_scale=1.0 / stride_p4, 
                 aligned=True
