@@ -288,7 +288,7 @@ class Segment(Detect):
 
 class DetectHF(Detect):
     """
-    Hierarchical-Flat Detection Head.
+    YOLOv8-HF (Hierarchical-Flat) Detection Head.
     
     Hybrid architecture:
     - Branch 1 (Flat): Predicts the entire image like the original YOLOv8
@@ -296,81 +296,55 @@ class DetectHF(Detect):
     """
     
     def __init__(self, nc: int = 80, nc_hier: int = 8, person_cls_id: int = 0, ch: Tuple = ()):
-        """
-        Initialize DetectHF.
-        Args:
-            nc (int): Total number of classes for the Flat branch
-            nc_hier (int): Number of classes for the Hierarchical branch
-            person_cls_id (int): ID of the 'person' class in the dataset.
-            ch (tuple): Feature map channels from the backbone.
-        """
         super().__init__(nc, ch)
         self.nc_hier = nc_hier
         self.person_cls_id = person_cls_id
         
         self.roi_size = (7, 7) # Standard size for RoI Align
         
-        # Extract features from P4
-        roi_channels = ch[1] 
+        # SỬ DỤNG P3 (ch[0]) THAY VÌ P4: 
+        # P3 có stride=8, giữ được chi tiết cực tốt cho vật thể nhỏ như gloves/boots.
+        roi_channels = ch[0] 
         
         # CNN network to process RoI regions (7x7) into box and class predictions
         self.hier_conv = nn.Sequential(
-            Conv(roi_channels, roi_channels, 3), # Convolution keeping channel size unchanged
-            nn.AdaptiveAvgPool2d(1)              # Global Average Pooling -> shape: (N, C, 1, 1)
+            Conv(roi_channels, roi_channels, 3), 
+            nn.AdaptiveAvgPool2d(1)              
         )
         
         # Prediction heads for the Hierarchical branch
-        self.hier_cv2 = nn.Conv2d(roi_channels, 4 * self.reg_max, 1) # Box (relative to person)
-        self.hier_cv3 = nn.Conv2d(roi_channels, self.nc_hier, 1)     # Classes (PPE)
+        self.hier_cv2 = nn.Conv2d(roi_channels, 4 * self.reg_max, 1) 
+        self.hier_cv3 = nn.Conv2d(roi_channels, self.nc_hier, 1)     
 
     def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
-
+        # 1. NHÁNH FLAT (Global Context)
         flat_feats = [xi.clone() for xi in x] 
         for i in range(self.nl):
             flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
         
+        # 2. TẠO PROPOSALS (VÙNG NGƯỜI) - NGẮT ĐỒ THỊ ĐỂ CHỐNG OOM
         rois = None
         if self.training and gt_rois is not None:
             rois = gt_rois
         else:
+            # Bắt buộc dùng no_grad() để tách biệt đồ thị nhánh Hier khỏi nhánh Flat
             with torch.no_grad():
                 detached_feats = [xi.clone().detach() for xi in flat_feats]
                 flat_preds = self._inference(detached_feats)
                 rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
             
+        # 3. NHÁNH HIERARCHICAL (Local PPE Context)
         hier_preds = None
 
-        #=======
-        """
         if rois is not None and rois.shape[0] > 0:
-            feat_p4 = x[1] 
-            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
-
-            num_rois = rois.shape[0]
-
-            if num_rois > 20: 
-                mem_alloc = torch.cuda.memory_allocated() / (1024**3)
-                print(f"\n[DEBUG] Batch này có {num_rois} người. VRAM đang dùng: {mem_alloc:.2f} GB")
-                print(f"[DEBUG] Kích thước feat_p4: {feat_p4.shape}")
-            # =========================================
+            feat_p3 = x[0] # Tương ứng với kênh ch[0] đã setup ở __init__
+            stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
             
             person_crops = roi_align(
-                feat_p4, 
+                feat_p3, 
                 rois, 
                 output_size=self.roi_size, 
-                spatial_scale=1.0 / stride_p4, 
-                aligned=True
-            )
-        """
-        if rois is not None and rois.shape[0] > 0:
-            feat_p4 = x[1] 
-            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
-            
-            person_crops = roi_align(
-                feat_p4, 
-                rois, 
-                output_size=self.roi_size, 
-                spatial_scale=1.0 / stride_p4, 
+                spatial_scale=1.0 / stride_p3, 
                 aligned=True
             )
             
@@ -386,55 +360,58 @@ class DetectHF(Detect):
         y_flat = self._inference(flat_feats)
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
-
     def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-            rois_list = []
-            
-            # preds shape: (batch_size, 4 + nc, num_anchors)
-            boxes, scores = preds.split([4, self.nc], dim=1)
-            boxes = boxes.permute(0, 2, 1).contiguous()   
-            scores = scores.permute(0, 2, 1).contiguous() 
-            person_scores = scores[..., self.person_cls_id] 
+        rois_list = []
 
-            # --- CHIẾN THUẬT CHỐNG OOM TUYỆT ĐỐI ---
-            MAX_PRE_NMS = 100  # Chỉ lấy 100 anchor có điểm person cao nhất để xét
-            MAX_POST_NMS = 30  # Sau khi NMS, chỉ lấy tối đa 15 người/ảnh
-            
-            for b in range(batch_size):
-                b_scores = person_scores[b]
-                
-                # 1. Lọc nhanh bằng Top-K trước khi làm bất cứ việc gì khác
-                # Điều này ngăn chặn con số 1344 hay 8400 bùng nổ
-                num_candidates = min(MAX_PRE_NMS, b_scores.numel())
-                topk_scores, topk_idx = torch.topk(b_scores, num_candidates)
-                
-                # 2. Chỉ lấy các box tương ứng với Top-K
-                b_boxes = boxes[b][topk_idx]
-                
-                # 3. Lọc lại theo ngưỡng conf_thres (để chắc chắn)
-                mask = topk_scores > conf_thres
-                if not mask.any():
-                    continue
-                
-                f_boxes = b_boxes[mask]
-                f_scores = topk_scores[mask]
-                
-                # 4. NMS trên danh sách đã rút gọn (Rất nhanh và an toàn RAM)
-                keep = torchvision.ops.nms(f_boxes, f_scores, iou_threshold=0.45)
-                final_boxes = f_boxes[keep]
-                
-                # 5. Giới hạn cứng số người được phép cắt (RoIs)
-                if final_boxes.shape[0] > MAX_POST_NMS:
-                    final_boxes = final_boxes[:MAX_POST_NMS]
-                
-                batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-                b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-                rois_list.append(b_rois)
-                
-            if len(rois_list) > 0:
-                return torch.cat(rois_list, dim=0)
-            return torch.empty((0, 5), device=preds.device)
+        boxes, scores = preds.split([4, self.nc], dim=1)
+        boxes = boxes.permute(0, 2, 1).contiguous()   
+        scores = scores.permute(0, 2, 1).contiguous() 
+        person_scores = scores[..., self.person_cls_id] 
+        
+        # =================================================================
+        # CHIẾN LƯỢC QUẢN LÝ TÀI NGUYÊN (Lấy cảm hứng từ Detectron2)
+        # =================================================================
+        if self.training:
+            MAX_PRE_NMS = 100   # Chỉ xét 100 box tiềm năng để tính NMS cho nhẹ
+            MAX_POST_NMS = 20   # Lấy mẫu tối đa 20 người/ảnh (Chống nhiễu & Chống OOM)
+        else:
+            MAX_PRE_NMS = 1000  # Khi test, xét nhiều box hơn
+            MAX_POST_NMS = None # Quét không giới hạn để giữ nguyên Recall (Độ chính xác)
+        # =================================================================
 
+        for b in range(batch_size):
+            b_scores = person_scores[b]
+            
+            # Lọc Top-K trước NMS
+            num_candidates = min(MAX_PRE_NMS, b_scores.numel())
+            topk_scores, topk_idx = torch.topk(b_scores, num_candidates)
+            
+            # Lọc theo Threshold
+            mask = topk_scores > conf_thres
+            if not mask.any():
+                continue
+                
+            f_boxes = boxes[b][topk_idx][mask]
+            f_scores = topk_scores[mask]
+            
+            # Thực hiện NMS
+            keep = torchvision.ops.nms(f_boxes, f_scores, iou_threshold=0.45)
+            final_boxes = f_boxes[keep]
+            
+            # Giới hạn số lượng (Chỉ áp dụng khi Train)
+            if MAX_POST_NMS is not None and final_boxes.shape[0] > MAX_POST_NMS:
+                final_boxes = final_boxes[:MAX_POST_NMS]
+            
+            # Đóng gói định dạng chuẩn cho roi_align: [batch_index, x1, y1, x2, y2]
+            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
+            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
+            rois_list.append(b_rois)
+            
+        if len(rois_list) > 0:
+            return torch.cat(rois_list, dim=0)
+        
+        return torch.empty((0, 5), device=preds.device)
+        
 class OBB(Detect):
     """
     YOLO OBB detection head for detection with rotation models.
