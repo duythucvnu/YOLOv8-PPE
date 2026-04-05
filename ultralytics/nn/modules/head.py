@@ -339,6 +339,31 @@ class DetectHF(Detect):
                 rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
             
         hier_preds = None
+
+        #=======
+        if rois is not None and rois.shape[0] > 0:
+            feat_p4 = x[1] 
+            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
+
+            num_rois = rois.shape[0]
+
+            if num_rois > 32:
+                rois = rois[:32] 
+
+            if num_rois > 20: 
+                mem_alloc = torch.cuda.memory_allocated() / (1024**3)
+                print(f"\n[DEBUG] Batch này có {num_rois} người. VRAM đang dùng: {mem_alloc:.2f} GB")
+                print(f"[DEBUG] Kích thước feat_p4: {feat_p4.shape}")
+            # =========================================
+            
+            person_crops = roi_align(
+                feat_p4, 
+                rois, 
+                output_size=self.roi_size, 
+                spatial_scale=1.0 / stride_p4, 
+                aligned=True
+            )
+            """
         if rois is not None and rois.shape[0] > 0:
             feat_p4 = x[1] 
             stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
@@ -350,6 +375,7 @@ class DetectHF(Detect):
                 spatial_scale=1.0 / stride_p4, 
                 aligned=True
             )
+            """
             
             hier_feat = self.hier_conv(person_crops) 
             hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) 
