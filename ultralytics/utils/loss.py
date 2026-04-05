@@ -562,9 +562,10 @@ class v8HFDetectionLoss(v8DetectionLoss):
                 if hier_targets is not None:
                     loss[3] = self.hier_bce(h_cls, hier_targets)
 
+            # Cực kỳ quan trọng: Nếu không có người nào, phải tạo tensor 0 có requires_grad=True 
+            # để đồ thị không bị khuyết nhánh, gây lỗi DDP hoặc OOM do graph mismatch
             else:
-                dummy_loss = sum([p.sum() for p in self.model.hier_cv3.parameters()]) * 0.0
-                loss[3] = dummy_loss
+                loss[3] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
             loss[0] *= self.hyp.box
             loss[1] *= self.hyp.cls
