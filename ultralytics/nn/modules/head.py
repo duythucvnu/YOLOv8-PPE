@@ -386,47 +386,6 @@ class DetectHF(Detect):
         y_flat = self._inference(flat_feats)
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
-    def _get_person_rois(self, preds, batch_size, conf_thres=0.25):
-        # 1. Tách box và score
-        boxes, scores = preds.split([4, self.nc], dim=1)
-        boxes = boxes.permute(0, 2, 1).contiguous()   
-        scores = scores.permute(0, 2, 1).contiguous() 
-        person_scores = scores[..., self.person_cls_id] # (B, N)
-
-        # 2. Tạo tensor chỉ số batch cho toàn bộ anchors: [0,0,0...1,1,1...2,2,2...]
-        num_anchors = person_scores.shape[1]
-        batch_indices = torch.arange(batch_size, device=preds.device).view(-1, 1).repeat(1, num_anchors).view(-1)
-        
-        # 3. Flatten toàn bộ batch thành một danh sách dài
-        flat_boxes = boxes.view(-1, 4)
-        flat_scores = person_scores.view(-1)
-        
-        # 4. Lọc nhanh bằng ngưỡng Conf để giảm tải cho NMS
-        mask = flat_scores > conf_thres
-        if not mask.any():
-            return torch.empty((0, 5), device=preds.device)
-            
-        f_boxes = flat_boxes[mask]
-        f_scores = flat_scores[mask]
-        f_batch_idxs = batch_indices[mask]
-        
-        # 5. Dùng BATCHED NMS (Chạy cực nhanh trên GPU cho cả Batch cùng lúc)
-        from torchvision.ops import batched_nms
-        keep = batched_nms(f_boxes, f_scores, f_batch_idxs, iou_threshold=0.45)
-        
-        # 6. Lấy kết quả và giới hạn số lượng RoIs toàn batch để cứu VRAM
-        final_boxes = f_boxes[keep]
-        final_batch_idxs = f_batch_idxs[keep]
-        
-        # Giới hạn tối đa 48 RoIs cho cả Batch (Trung bình 12 người/ảnh)
-        MAX_TOTAL_ROIS = 48 
-        if final_boxes.shape[0] > MAX_TOTAL_ROIS:
-            final_boxes = final_boxes[:MAX_TOTAL_ROIS]
-            final_batch_idxs = final_batch_idxs[:MAX_TOTAL_ROIS]
-            
-        return torch.cat((final_batch_idxs.view(-1, 1).float(), final_boxes), dim=1)
-
-    """    
 
     def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
             rois_list = []
@@ -439,7 +398,7 @@ class DetectHF(Detect):
 
             # --- CHIẾN THUẬT CHỐNG OOM TUYỆT ĐỐI ---
             MAX_PRE_NMS = 100  # Chỉ lấy 100 anchor có điểm person cao nhất để xét
-            MAX_POST_NMS = 15  # Sau khi NMS, chỉ lấy tối đa 15 người/ảnh
+            MAX_POST_NMS = 30  # Sau khi NMS, chỉ lấy tối đa 15 người/ảnh
             
             for b in range(batch_size):
                 b_scores = person_scores[b]
@@ -475,7 +434,6 @@ class DetectHF(Detect):
             if len(rois_list) > 0:
                 return torch.cat(rois_list, dim=0)
             return torch.empty((0, 5), device=preds.device)
-        """
 
 class OBB(Detect):
     """
