@@ -360,58 +360,48 @@ class DetectHF(Detect):
         y_flat = self._inference(flat_feats)
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
-    def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-        rois_list = []
-
+def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
         boxes, scores = preds.split([4, self.nc], dim=1)
         boxes = boxes.permute(0, 2, 1).contiguous()   
         scores = scores.permute(0, 2, 1).contiguous() 
         person_scores = scores[..., self.person_cls_id] 
         
-        # =================================================================
-        # CHIẾN LƯỢC QUẢN LÝ TÀI NGUYÊN (Lấy cảm hứng từ Detectron2)
-        # =================================================================
-        if self.training:
-            MAX_PRE_NMS = 100   # Chỉ xét 100 box tiềm năng để tính NMS cho nhẹ
-            MAX_POST_NMS = 20   # Lấy mẫu tối đa 20 người/ảnh (Chống nhiễu & Chống OOM)
-        else:
-            MAX_PRE_NMS = 1000  # Khi test, xét nhiều box hơn
-            MAX_POST_NMS = None # Quét không giới hạn để giữ nguyên Recall (Độ chính xác)
-        # =================================================================
-
+        MAX_ROIS = 30 # CHỐT CỨNG SỐ LƯỢNG ROI LÀ 15 CHO MỌI BỨC ẢNH
+        rois_list = []
+        
         for b in range(batch_size):
             b_scores = person_scores[b]
             
-            # Lọc Top-K trước NMS
-            num_candidates = min(MAX_PRE_NMS, b_scores.numel())
+            # Lọc box (như cũ)
+            num_candidates = min(50, b_scores.numel())
             topk_scores, topk_idx = torch.topk(b_scores, num_candidates)
-            
-            # Lọc theo Threshold
             mask = topk_scores > conf_thres
-            if not mask.any():
-                continue
+            
+            # TẠO MỘT TENSOR TĨNH TOÀN SỐ 0
+            # Định dạng: [batch_idx, x1, y1, x2, y2]
+            static_rois = torch.zeros((MAX_ROIS, 5), device=preds.device, dtype=preds.dtype)
+            static_rois[:, 0] = b # Gán cột đầu tiên là batch index
+            
+            if mask.any():
+                f_boxes = boxes[b][topk_idx][mask]
+                f_scores = topk_scores[mask]
                 
-            f_boxes = boxes[b][topk_idx][mask]
-            f_scores = topk_scores[mask]
+                import torchvision
+                keep = torchvision.ops.nms(f_boxes, f_scores, iou_threshold=0.45)
+                final_boxes = f_boxes[keep]
+                
+                # Cắt lấy tối đa MAX_ROIS box
+                num_detected = min(final_boxes.shape[0], MAX_ROIS)
+                
+                # Đổ dữ liệu thật đè lên các box ảo (0,0,0,0)
+                if num_detected > 0:
+                    static_rois[:num_detected, 1:] = final_boxes[:num_detected]
             
-            # Thực hiện NMS
-            keep = torchvision.ops.nms(f_boxes, f_scores, iou_threshold=0.45)
-            final_boxes = f_boxes[keep]
+            rois_list.append(static_rois)
             
-            # Giới hạn số lượng (Chỉ áp dụng khi Train)
-            if MAX_POST_NMS is not None and final_boxes.shape[0] > MAX_POST_NMS:
-                final_boxes = final_boxes[:MAX_POST_NMS]
-            
-            # Đóng gói định dạng chuẩn cho roi_align: [batch_index, x1, y1, x2, y2]
-            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-            rois_list.append(b_rois)
-            
-        if len(rois_list) > 0:
-            return torch.cat(rois_list, dim=0)
-        
-        return torch.empty((0, 5), device=preds.device)
-        
+        # KẾT QUẢ LUÔN LÀ: (batch_size * 15, 5). KHÔNG BAO GIỜ THAY ĐỔI SHAPE!
+        return torch.cat(rois_list, dim=0)
+
 class OBB(Detect):
     """
     YOLO OBB detection head for detection with rotation models.
