@@ -201,13 +201,6 @@ class BaseModel(torch.nn.Module):
             Returns:
                 (torch.Tensor): The last output of the model.
             """
-            def print_mem(step_name):
-                # Chuyển đổi sang MB để dễ đọc
-                allocated = torch.cuda.memory_allocated() / (1024**2)
-                reserved = torch.cuda.memory_reserved() / (1024**2)
-                print(f"[{step_name}] Allocated: {allocated:.2f}MB | Reserved: {reserved:.2f}MB")
-
-
             y, dt, embeddings = [], [], []  # outputs
             for idx, m in enumerate(self.model):
                 if m.f != -1:  # if not from previous layer
@@ -260,9 +253,6 @@ class BaseModel(torch.nn.Module):
                     embeddings.append(nn.functional.adaptive_avg_pool2d(x, (1, 1)).squeeze(-1).squeeze(-1))  # flatten
                     if m.i == max(embed):
                         return torch.unbind(torch.cat(embeddings, 1), dim=0)
-                if m.i == 1: print_mem("After Backbone")
-                if m.i == 13: print_mem("After BiFPN Neck")
-                if m.i == 14: print_mem("After DetectHF Head")
             return x
 
     def _predict_augment(self, x):
