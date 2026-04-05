@@ -310,8 +310,8 @@ class DetectHF(Detect):
         
         self.roi_size = (7, 7) # Standard size for RoI Align
         
-        # Ưxtract features from P4
-        roi_channels = ch[1] 
+        # Extract features from P3
+        roi_channels = ch[0] 
         
         # CNN network to process RoI regions (7x7) into box and class predictions
         self.hier_conv = nn.Sequential(
@@ -345,12 +345,12 @@ class DetectHF(Detect):
         
         if rois is not None and rois.shape[0] > 0:
             # Select feature map P4 (index 1) for cropping. P4 balances resolution and semantics.
-            feat_p4 = x[1] 
-            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
+            feat_p3 = x[0] 
+            stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
             
             # Perform RoI Align
             person_crops = roi_align(
-                feat_p4, 
+                feat_p3, 
                 rois, 
                 output_size=self.roi_size, 
                 spatial_scale=1.0 / stride_p4, 
