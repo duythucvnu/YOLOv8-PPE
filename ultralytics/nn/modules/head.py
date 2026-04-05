@@ -324,31 +324,25 @@ class DetectHF(Detect):
         self.hier_cv3 = nn.Conv2d(roi_channels, self.nc_hier, 1)     # Classes (PPE)
 
     def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
-        """
-        Forward pass for both Flat and Hierarchical branches.
-        """
-        # Flat branch
-        flat_feats = [xi.clone() for xi in x] # Clone to avoid in-place operations affecting later branches
+
+        flat_feats = [xi.clone() for xi in x] 
         for i in range(self.nl):
             flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
-
-        # Extract RoI
+        
         rois = None
         if self.training and gt_rois is not None:
             rois = gt_rois
         else:
-            flat_preds = self._inference([xi.clone() for xi in flat_feats])
-            rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
+            with torch.no_grad():
+                detached_feats = [xi.clone().detach() for xi in flat_feats]
+                flat_preds = self._inference(detached_feats)
+                rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
             
-        # Hierachical Branch
         hier_preds = None
-        
         if rois is not None and rois.shape[0] > 0:
-            # Select feature map P4 (index 1) for cropping. P4 balances resolution and semantics.
             feat_p4 = x[1] 
             stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
             
-            # Perform RoI Align
             person_crops = roi_align(
                 feat_p4, 
                 rois, 
@@ -357,12 +351,11 @@ class DetectHF(Detect):
                 aligned=True
             )
             
-            # Pass through hierarchical detection network
-            hier_feat = self.hier_conv(person_crops) # shape: (num_rois, channels, 1, 1)
-            hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) # shape: (num_rois, 4*reg_max)
-            hier_cls = self.hier_cv3(hier_feat).squeeze(-1).squeeze(-1) # shape: (num_rois, nc_hier)
+            hier_feat = self.hier_conv(person_crops) 
+            hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) 
+            hier_cls = self.hier_cv3(hier_feat).squeeze(-1).squeeze(-1) 
             
-            hier_preds = (hier_box, hier_cls, rois) # Return with rois so loss can map positions
+            hier_preds = (hier_box, hier_cls, rois)
 
         if self.training:
             return flat_feats, hier_preds
@@ -371,36 +364,41 @@ class DetectHF(Detect):
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
     def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-            rois_list = []
-            boxes, scores = preds.split([4, self.nc], dim=1)
+        rois_list = []
+
+        boxes, scores = preds.split([4, self.nc], dim=1)
+        
+        boxes = boxes.permute(0, 2, 1).contiguous()   # -> (B, N, 4)
+        scores = scores.permute(0, 2, 1).contiguous() # -> (B, N, nc)
+        
+        person_scores = scores[..., self.person_cls_id] # Get scores for the "person" class
+        
+        for b in range(batch_size):
+            # Filter by confidence threshold
+            mask = person_scores[b] > conf_thres
+            b_boxes = boxes[b][mask]
+            b_scores = person_scores[b][mask]
             
-            boxes = boxes.permute(0, 2, 1).contiguous()
-            scores = scores.permute(0, 2, 1).contiguous()
-            person_scores = scores[..., self.person_cls_id]
+            if b_boxes.shape[0] == 0:
+                continue
             
-            MAX_ROIS_PER_IMAGE = 30 
+            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
+            final_boxes = b_boxes[keep]
             
-            for b in range(batch_size):
-                mask = person_scores[b] > conf_thres
-                b_boxes = boxes[b][mask]
-                b_scores = person_scores[b][mask]
+            # Create tensor [batch_idx, x1, y1, x2, y2]
+            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
+            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
+            rois_list.append(b_rois)
+            
+        if len(rois_list) > 0:
+            return torch.cat(rois_list, dim=0)
+        
+        # Return empty tensor with correct shape if no person is detected
+        return torch.empty((0, 5), device=preds.device)
                 
-                if b_boxes.shape[0] == 0:
-                    continue
-                    
-                keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
-                final_boxes = b_boxes[keep]
-                
-                if final_boxes.shape[0] > MAX_ROIS_PER_IMAGE:
-                    final_boxes = final_boxes[:MAX_ROIS_PER_IMAGE]
-                
-                batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-                b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-                rois_list.append(b_rois)
-                
-            if len(rois_list) > 0:
-                return torch.cat(rois_list, dim=0)
-            return torch.empty((0, 5), device=preds.device)
+        if len(rois_list) > 0:
+            return torch.cat(rois_list, dim=0)
+        return None
 
 class OBB(Detect):
     """
