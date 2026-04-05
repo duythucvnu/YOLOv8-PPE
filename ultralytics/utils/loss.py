@@ -574,53 +574,53 @@ class v8HFDetectionLoss(v8DetectionLoss):
 
             return loss.sum() * batch_size, loss.detach()
 
-def _build_hier_targets(self, rois, targets, batch_size, nc_hier):
-        num_rois = rois.shape[0]
-        if num_rois == 0:
-            return None
-            
-        # Tạo target với size chuẩn nc_hier (8)
-        hier_targets = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.float32)
-        person_id = 7 # ID của lớp người
-        
-        for i in range(num_rois):
-            b_idx = int(rois[i, 0].item())
-            roi_box = rois[i, 1:5]
-            
-            batch_targets = targets[b_idx]
-            valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
-            b_targets = batch_targets[valid_mask]
-            
-            if b_targets.shape[0] == 0:
-                continue
+    def _build_hier_targets(self, rois, targets, batch_size, nc_hier):
+            num_rois = rois.shape[0]
+            if num_rois == 0:
+                return None
                 
-            gt_classes = b_targets[:, 0].long()
-            gt_boxes = b_targets[:, 1:5]
+            # Tạo target với size chuẩn nc_hier (8)
+            hier_targets = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.float32)
+            person_id = 7 # ID của lớp người
             
-            # Tính overlap
-            x1 = torch.max(roi_box[0], gt_boxes[:, 0])
-            y1 = torch.max(roi_box[1], gt_boxes[:, 1])
-            x2 = torch.min(roi_box[2], gt_boxes[:, 2])
-            y2 = torch.min(roi_box[3], gt_boxes[:, 3])
-            inter_area = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
-            gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-            
-            overlap_ratio = inter_area / (gt_area + 1e-6)
-            inside_mask = overlap_ratio > 0.5
-            
-            classes_inside = gt_classes[inside_mask]
-            
-            for cls_id in classes_inside:
-                cls_id = int(cls_id.item())
-                if cls_id == person_id:
-                    continue # Không học lớp person ở nhánh này
+            for i in range(num_rois):
+                b_idx = int(rois[i, 0].item())
+                roi_box = rois[i, 1:5]
                 
-                ppe_id = cls_id if cls_id < person_id else cls_id - 1
+                batch_targets = targets[b_idx]
+                valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
+                b_targets = batch_targets[valid_mask]
                 
-                if ppe_id < nc_hier:
-                    hier_targets[i, ppe_id] = 1.0
+                if b_targets.shape[0] == 0:
+                    continue
+                    
+                gt_classes = b_targets[:, 0].long()
+                gt_boxes = b_targets[:, 1:5]
                 
-        return hier_targets
+                # Tính overlap
+                x1 = torch.max(roi_box[0], gt_boxes[:, 0])
+                y1 = torch.max(roi_box[1], gt_boxes[:, 1])
+                x2 = torch.min(roi_box[2], gt_boxes[:, 2])
+                y2 = torch.min(roi_box[3], gt_boxes[:, 3])
+                inter_area = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
+                gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
+                
+                overlap_ratio = inter_area / (gt_area + 1e-6)
+                inside_mask = overlap_ratio > 0.5
+                
+                classes_inside = gt_classes[inside_mask]
+                
+                for cls_id in classes_inside:
+                    cls_id = int(cls_id.item())
+                    if cls_id == person_id:
+                        continue # Không học lớp person ở nhánh này
+                    
+                    ppe_id = cls_id if cls_id < person_id else cls_id - 1
+                    
+                    if ppe_id < nc_hier:
+                        hier_targets[i, ppe_id] = 1.0
+                    
+            return hier_targets
 
 
 class v8PoseLoss(v8DetectionLoss):
