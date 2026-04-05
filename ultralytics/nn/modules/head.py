@@ -410,7 +410,8 @@ class DetectHF(Detect):
             
             keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
             final_boxes = b_boxes[keep]
-            if final_boxes.shape[0] > 50:
+            max_rois_per_image = 50
+            if final_boxes.shape[0] > max_rois_per_image:
                 topk_indices = torch.topk(b_scores, max_rois_per_image).indices
                 final_boxes = final_boxes[topk_indices]
             
