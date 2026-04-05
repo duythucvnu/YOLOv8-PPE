@@ -517,11 +517,17 @@ class v8HFDetectionLoss(v8DetectionLoss):
     def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
             loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
             
-            if isinstance(preds, tuple) and len(preds) == 2:
-                flat_feats, hier_preds = preds
+            if isinstance(preds, tuple):
+                if len(preds) == 3:
+                    _, flat_feats, hier_preds = preds
+                elif len(preds) == 2:
+                    flat_feats, hier_preds = preds
+                else:
+                    flat_feats = preds
+                    hier_preds = None
             else:
-                flat_feats = preds[0] if isinstance(preds, (list, tuple)) else preds
-                hier_preds = preds[1] if (isinstance(preds, (list, tuple)) and len(preds) > 1) else None
+                flat_feats = preds
+                hier_preds = None
 
             pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
                 (self.reg_max * 4, self.nc), 1

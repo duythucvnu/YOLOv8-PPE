@@ -347,9 +347,6 @@ class DetectHF(Detect):
 
             num_rois = rois.shape[0]
 
-            if num_rois > 32:
-                rois = rois[:32] 
-
             if num_rois > 20: 
                 mem_alloc = torch.cuda.memory_allocated() / (1024**3)
                 print(f"\n[DEBUG] Batch này có {num_rois} người. VRAM đang dùng: {mem_alloc:.2f} GB")
@@ -390,41 +387,52 @@ class DetectHF(Detect):
         return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
 
     def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-        rois_list = []
+            rois_list = []
+            
+            # preds shape: (batch_size, 4 + nc, num_anchors)
+            boxes, scores = preds.split([4, self.nc], dim=1)
+            boxes = boxes.permute(0, 2, 1).contiguous()   
+            scores = scores.permute(0, 2, 1).contiguous() 
+            person_scores = scores[..., self.person_cls_id] 
 
-        boxes, scores = preds.split([4, self.nc], dim=1)
-        
-        boxes = boxes.permute(0, 2, 1).contiguous()   # -> (B, N, 4)
-        scores = scores.permute(0, 2, 1).contiguous() # -> (B, N, nc)
-        
-        person_scores = scores[..., self.person_cls_id] # Get scores for the "person" class
-        
-        for b in range(batch_size):
-            # Filter by confidence threshold
-            mask = person_scores[b] > conf_thres
-            b_boxes = boxes[b][mask]
-            b_scores = person_scores[b][mask]
+            # --- CHIẾN THUẬT CHỐNG OOM TUYỆT ĐỐI ---
+            MAX_PRE_NMS = 100  # Chỉ lấy 100 anchor có điểm person cao nhất để xét
+            MAX_POST_NMS = 15  # Sau khi NMS, chỉ lấy tối đa 15 người/ảnh
             
-            if b_boxes.shape[0] == 0:
-                continue
-            
-            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
-            final_boxes = b_boxes[keep]
-            
-            # Create tensor [batch_idx, x1, y1, x2, y2]
-            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-            rois_list.append(b_rois)
-            
-        if len(rois_list) > 0:
-            return torch.cat(rois_list, dim=0)
-        
-        # Return empty tensor with correct shape if no person is detected
-        return torch.empty((0, 5), device=preds.device)
+            for b in range(batch_size):
+                b_scores = person_scores[b]
                 
-        if len(rois_list) > 0:
-            return torch.cat(rois_list, dim=0)
-        return None
+                # 1. Lọc nhanh bằng Top-K trước khi làm bất cứ việc gì khác
+                # Điều này ngăn chặn con số 1344 hay 8400 bùng nổ
+                num_candidates = min(MAX_PRE_NMS, b_scores.numel())
+                topk_scores, topk_idx = torch.topk(b_scores, num_candidates)
+                
+                # 2. Chỉ lấy các box tương ứng với Top-K
+                b_boxes = boxes[b][topk_idx]
+                
+                # 3. Lọc lại theo ngưỡng conf_thres (để chắc chắn)
+                mask = topk_scores > conf_thres
+                if not mask.any():
+                    continue
+                
+                f_boxes = b_boxes[mask]
+                f_scores = topk_scores[mask]
+                
+                # 4. NMS trên danh sách đã rút gọn (Rất nhanh và an toàn RAM)
+                keep = torchvision.ops.nms(f_boxes, f_scores, iou_threshold=0.45)
+                final_boxes = f_boxes[keep]
+                
+                # 5. Giới hạn cứng số người được phép cắt (RoIs)
+                if final_boxes.shape[0] > MAX_POST_NMS:
+                    final_boxes = final_boxes[:MAX_POST_NMS]
+                
+                batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
+                b_rois = torch.cat((batch_idx, final_boxes), dim=1)
+                rois_list.append(b_rois)
+                
+            if len(rois_list) > 0:
+                return torch.cat(rois_list, dim=0)
+            return torch.empty((0, 5), device=preds.device)
 
 class OBB(Detect):
     """
