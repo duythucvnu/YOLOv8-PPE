@@ -341,6 +341,7 @@ class DetectHF(Detect):
         hier_preds = None
 
         #=======
+        """
         if rois is not None and rois.shape[0] > 0:
             feat_p4 = x[1] 
             stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
@@ -360,7 +361,7 @@ class DetectHF(Detect):
                 spatial_scale=1.0 / stride_p4, 
                 aligned=True
             )
-            """
+        """
         if rois is not None and rois.shape[0] > 0:
             feat_p4 = x[1] 
             stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
@@ -372,7 +373,6 @@ class DetectHF(Detect):
                 spatial_scale=1.0 / stride_p4, 
                 aligned=True
             )
-            """
             
             hier_feat = self.hier_conv(person_crops) 
             hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) 

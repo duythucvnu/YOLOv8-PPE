@@ -32,7 +32,7 @@ class VarifocalLoss(nn.Module):
         https://arxiv.org/abs/2008.13367
     """
 
-    def __init__(self, gamma: float = 2.0, alpha: float = 0.75):
+    def __init__(self, gamma: float = 1.5, alpha: float = 0.75):
         """Initialize the VarifocalLoss class with focusing and balancing parameters."""
         super().__init__()
         self.gamma = gamma
@@ -559,7 +559,7 @@ class v8HFDetectionLoss(v8DetectionLoss):
 
             target_scores_sum = max(target_scores.sum(), 1)
 
-            loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum 
+            loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum
 
             if fg_mask.sum():
                 target_bboxes /= stride_tensor
