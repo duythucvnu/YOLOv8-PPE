@@ -509,7 +509,7 @@ class v8HFDetectionLoss(v8DetectionLoss):
         
         # Class IDs
         self.person_cls_id = 7  
-        self.nc_hier = self.nc
+        self.nc_hier = self.nc - 1
         
         # Weight for hierarchical branch
         self.lambda_hier = 1.5 
