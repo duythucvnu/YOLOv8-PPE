@@ -515,71 +515,65 @@ class v8HFDetectionLoss(v8DetectionLoss):
         self.lambda_hier = 1.5 
 
     def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Compute total loss: L_total = L_flat (Box, Cls_Focal, DFL) + L_hierarchical"""
-        loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
-        
-        # Unpack outputs from DetectHF (flat_feats, hier_preds)
-        flat_feats, hier_preds = preds
-        
-        # Loss for flat branch
-        pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
-            (self.reg_max * 4, self.nc), 1
-        )
+            loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
+            
+            if isinstance(preds, tuple) and len(preds) == 2:
+                flat_feats, hier_preds = preds
+            else:
+                flat_feats = preds[0] if isinstance(preds, (list, tuple)) else preds
+                hier_preds = preds[1] if (isinstance(preds, (list, tuple)) and len(preds) > 1) else None
 
-        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
-        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-
-        dtype = pred_scores.dtype
-        batch_size = pred_scores.shape[0]
-        imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
-        anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
-
-        # Prepare original targets
-        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
-        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)
-        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
-
-        # Decode bounding boxes
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
-
-        # Assign targets to anchors (TaskAlignedAssigner)
-        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
-            pred_scores.detach().sigmoid(),
-            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-            anchor_points * stride_tensor,
-            gt_labels,
-            gt_bboxes,
-            mask_gt,
-        )
-
-        target_scores_sum = max(target_scores.sum(), 1)
-
-        loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum 
-
-        if fg_mask.sum():
-            target_bboxes /= stride_tensor
-            loss[0], loss[2] = self.bbox_loss(
-                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
+                (self.reg_max * 4, self.nc), 1
             )
 
-        if hier_preds is not None:
-            _, hier_cls_pred, rois = hier_preds
-            
-            # Build multi-label targets for each RoI (person region)
-            hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc)
-            
-            if hier_targets is not None:
-                # Compute BCE loss between RoI predictions and actual labels inside each person
-                loss[3] = self.hier_bce(hier_cls_pred, hier_targets)
+            pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+            pred_distri = pred_distri.permute(0, 2, 1).contiguous()
 
-        loss[0] *= self.hyp.box  # box gain
-        loss[1] *= self.hyp.cls  # classification gain (Focal)
-        loss[2] *= self.hyp.dfl  # dfl gain
-        loss[3] *= self.lambda_hier # hierarchical gain (custom)
+            dtype = pred_scores.dtype
+            batch_size = pred_scores.shape[0]
+            imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+            anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
 
-        # Return in YOLO standard format
-        return loss.sum() * batch_size, loss.detach()
+            targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+            targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+            gt_labels, gt_bboxes = targets.split((1, 4), 2)
+            mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+
+            pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
+
+            _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+                pred_scores.detach().sigmoid(),
+                (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+                anchor_points * stride_tensor,
+                gt_labels,
+                gt_bboxes,
+                mask_gt,
+            )
+
+            target_scores_sum = max(target_scores.sum(), 1)
+
+            loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum 
+
+            if fg_mask.sum():
+                target_bboxes /= stride_tensor
+                loss[0], loss[2] = self.bbox_loss(
+                    pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+                )
+            if hier_preds is not None:
+                # hier_preds (hier_box, hier_cls, rois)
+                h_box, h_cls, rois = hier_preds
+                hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc)
+                
+                if hier_targets is not None:
+                    loss[3] = self.hier_bce(h_cls, hier_targets)
+
+            loss[0] *= self.hyp.box
+            loss[1] *= self.hyp.cls
+            loss[2] *= self.hyp.dfl
+            loss[3] *= self.lambda_hier
+
+            return loss.sum() * batch_size, loss.detach()
 
     def _build_hier_targets(self, rois: torch.Tensor, targets: torch.Tensor, batch_size: int, num_classes: int) -> torch.Tensor:
         """
