@@ -353,7 +353,7 @@ class DetectHF(Detect):
                 feat_p3, 
                 rois, 
                 output_size=self.roi_size, 
-                spatial_scale=1.0 / stride_p4, 
+                spatial_scale=1.0 / stride_p3, 
                 aligned=True
             )
             
