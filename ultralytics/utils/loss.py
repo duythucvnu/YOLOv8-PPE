@@ -555,11 +555,17 @@ class v8HFDetectionLoss(v8DetectionLoss):
                 )
             if hier_preds is not None:
                 h_box, h_cls, rois = hier_preds
-                num_rois = rois.shape[0]
-                hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
+
+                with torch.no_grad():
+                    hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
                 
                 if hier_targets is not None:
-                    loss[3] = self.hier_bce(h_cls, hier_targets)/ num_rois
+                    loss[3] = self.hier_bce(h_cls, hier_targets)
+
+            # Cực kỳ quan trọng: Nếu không có người nào, phải tạo tensor 0 có requires_grad=True 
+            # để đồ thị không bị khuyết nhánh, gây lỗi DDP hoặc OOM do graph mismatch
+            else:
+                loss[3] = torch.tensor(0.0, device=self.device, requires_grad=True)
 
             loss[0] *= self.hyp.box
             loss[1] *= self.hyp.cls
