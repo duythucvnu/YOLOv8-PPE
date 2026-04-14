@@ -287,145 +287,110 @@ class Segment(Detect):
 
 
 class DetectHF(Detect):
-    """
-    Hierarchical-Flat Detection Head.
-    
-    Hybrid architecture:
-    - Branch 1 (Flat): Predicts the entire image like the original YOLOv8
-    - Branch 2 (Hierarchical): Automatically extracts "person" regions and detects PPE inside.
-    """
-    
-    def __init__(self, nc: int = 80, nc_hier: int = 8, person_cls_id: int = 0, ch: Tuple = ()):
-        """
-        Initialize DetectHF.
-        Args:
-            nc (int): Total number of classes for the Flat branch
-            nc_hier (int): Number of classes for the Hierarchical branch
-            person_cls_id (int): ID of the 'person' class in the dataset.
-            ch (tuple): Feature map channels from the backbone.
-        """
+    def __init__(self, nc=80, nc_hier=8, person_cls_id=7, ch=()):
         super().__init__(nc, ch)
         self.nc_hier = nc_hier
         self.person_cls_id = person_cls_id
+        self.roi_size = (7, 7)
         
-        self.roi_size = (7, 7) # Standard size for RoI Align
-        
-        # Extract features from P4
-        roi_channels = ch[1] 
-        
-        # CNN network to process RoI regions (7x7) into box and class predictions
+        # Tiết kiệm RAM: Giảm channel xuống 64 trước khi RoIAlign
+        roi_ch = 64
+        self.compress = nn.Conv2d(ch[0], roi_ch, 1)
         self.hier_conv = nn.Sequential(
-            Conv(roi_channels, roi_channels, 3), # Convolution keeping channel size unchanged
-            nn.AdaptiveAvgPool2d(1)              # Global Average Pooling -> shape: (N, C, 1, 1)
+            Conv(roi_ch, roi_ch, 3),
+            nn.AdaptiveAvgPool2d(1)
         )
-        
-        # Prediction heads for the Hierarchical branch
-        self.hier_cv2 = nn.Conv2d(roi_channels, 4 * self.reg_max, 1) # Box (relative to person)
-        self.hier_cv3 = nn.Conv2d(roi_channels, self.nc_hier, 1)     # Classes (PPE)
+        self.hier_cv2 = nn.Conv2d(roi_ch, 4 * self.reg_max, 1)
+        self.hier_cv3 = nn.Conv2d(roi_ch, self.nc_hier, 1)
 
-    def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
-
-        flat_feats = []
+    def forward(self, x, gt_rois=None):
+        # 1. FLAT BRANCH
+        flat_feats = [xi.clone() for xi in x]
         for i in range(self.nl):
-            feat = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
-            flat_feats.append(feat)
-
+            flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
         
+        # 2. PROPOSALS GENERATION (SAFE MODE)
         rois = None
-        if self.training and gt_rois is not None:
-            rois = gt_rois
-        else:
-            with torch.no_grad():
-                detached_feats = [xi.detach() for xi in flat_feats]
-                flat_preds = self._inference(detached_feats)
-                rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
+        # Chỉ chạy nhánh Hierarchical nếu có người để cắt
+        with torch.no_grad():
+            # Quan trọng: _inference trả về tensor (B, 4+nc, N)
+            flat_preds = self._inference([f.detach() for f in flat_feats])
+            rois = self._get_person_rois_safe(flat_preds)
             
+        # 3. HIERARCHICAL BRANCH
         hier_preds = None
-
-        #=======
-        """
         if rois is not None and rois.shape[0] > 0:
-            feat_p4 = x[1] 
-            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
-
-            num_rois = rois.shape[0]
-
-            if num_rois > 20: 
-                mem_alloc = torch.cuda.memory_allocated() / (1024**3)
-                print(f"\n[DEBUG] Batch này có {num_rois} người. VRAM đang dùng: {mem_alloc:.2f} GB")
-                print(f"[DEBUG] Kích thước feat_p4: {feat_p4.shape}")
-            # =========================================
+            # Ép kiểu và thiết bị khớp nhau tuyệt đối để tránh CUDA Assert
+            rois = rois.to(x[0].device)
+            feat_p3 = self.compress(x[0])
+            stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
             
-            person_crops = roi_align(
-                feat_p4, 
-                rois, 
-                output_size=self.roi_size, 
-                spatial_scale=1.0 / stride_p4, 
-                aligned=True
-            )
-        """
-        if rois is not None and rois.shape[0] > 0:
-            feat_p4 = x[1] 
-            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
+            # Cắt ảnh (Giữ nguyên đạo hàm của feat_p3 để Backbone vẫn học được)
+            person_crops = roi_align(feat_p3, rois, self.roi_size, 1.0/stride_p3, aligned=True)
             
-            person_crops = roi_align(
-                feat_p4, 
-                rois, 
-                output_size=self.roi_size, 
-                spatial_scale=1.0 / stride_p4, 
-                aligned=True
-            )
-            
-            hier_feat = self.hier_conv(person_crops) 
-            hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) 
-            hier_cls = self.hier_cv3(hier_feat).squeeze(-1).squeeze(-1) 
-            
-            hier_preds = (hier_box, hier_cls, rois)
+            h_f = self.hier_conv(person_crops)
+            h_b = self.hier_cv2(h_f).squeeze(-1).squeeze(-1)
+            h_c = self.hier_cv3(h_f).squeeze(-1).squeeze(-1)
+            hier_preds = (h_b, h_c, rois)
 
         if self.training:
             return flat_feats, hier_preds
         
+        # VALIDATION MODE: Phải trả về đúng format YOLO mong đợi
         y_flat = self._inference(flat_feats)
-        return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
+        # Gửi kèm hier_preds vào để sau này có thể dùng cho custom evaluation nếu cần
+        return y_flat if self.export else (y_flat, flat_feats, hier_preds)
 
-
-    def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
-        rois_list = []
-
+    def _get_person_rois_safe(self, preds):
+        """Hàm lấy RoI siêu an toàn, chống lỗi Index và OOM"""
+        # Tách Box (4) và Scores (nc)
+        # preds: (B, 4+nc, N)
         boxes, scores = preds.split([4, self.nc], dim=1)
+        boxes = boxes.permute(0, 2, 1).contiguous()   # (B, N, 4)
+        scores = scores.permute(0, 2, 1).contiguous() # (B, N, nc)
         
-        boxes = boxes.permute(0, 2, 1).contiguous()   # -> (B, N, 4)
-        scores = scores.permute(0, 2, 1).contiguous() # -> (B, N, nc)
+        # Bảo vệ person_id
+        p_id = min(self.person_cls_id, scores.shape[-1] - 1)
+        person_scores = scores[..., p_id] # (B, N)
         
-        person_scores = scores[..., self.person_cls_id] # Get scores for the "person" class
+        # Bắt lỗi NaN/Inf nếu có
+        person_scores = torch.nan_to_num(person_scores, nan=0.0, posinf=0.0)
         
-        for b in range(batch_size):
-            # Filter by confidence threshold
-            mask = person_scores[b] > conf_thres
-            b_boxes = boxes[b][mask]
-            b_scores = person_scores[b][mask]
-            
-            if b_boxes.shape[0] == 0:
-                continue
-            
-            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
-            final_boxes = b_boxes[keep]
-            max_rois_per_image = 50
-            if final_boxes.shape[0] > max_rois_per_image:
-                topk_indices = torch.topk(b_scores, max_rois_per_image).indices
-                final_boxes = final_boxes[topk_indices]
-            
-            # Create tensor [batch_idx, x1, y1, x2, y2]
-            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
-            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
-            rois_list.append(b_rois)
-            
-        if len(rois_list) > 0:
-            return torch.cat(rois_list, dim=0)
+        # 1. Flatten Batch để dùng batched_nms (Tối ưu cho DDP)
+        B, N, _ = boxes.shape
+        # Tạo batch_index: [0,0...1,1...B,B]
+        batch_idx = torch.arange(B, device=preds.device).view(-1, 1).expand(B, N).reshape(-1)
         
-        # Return empty tensor with correct shape if no person is detected
-        return torch.empty((0, 5), device=preds.device)
-
+        flat_boxes = boxes.reshape(-1, 4)
+        flat_scores = person_scores.reshape(-1)
+        
+        # 2. Lọc nhanh TopK để tránh tràn NMS (Lấy 100 cái tốt nhất toàn batch)
+        k = min(100 * B, flat_scores.numel())
+        topk_scores, topk_idx = torch.topk(flat_scores, k)
+        
+        # 3. Lọc theo ngưỡng tin cậy (conf > 0.25)
+        mask = topk_scores > 0.25
+        if not mask.any():
+            return None
+            
+        f_boxes = flat_boxes[topk_idx][mask]
+        f_scores = topk_scores[mask]
+        f_batch_idx = batch_idx[topk_idx][mask]
+        
+        # 4. Batched NMS (Cực kỳ ổn định trên DDP)
+        keep = batched_nms(f_boxes, f_scores, f_batch_idx, iou_threshold=0.45)
+        
+        final_boxes = f_boxes[keep]
+        final_batch_idx = f_batch_idx[keep]
+        
+        # 5. GIỚI HẠN TUYỆT ĐỐI (Sampling)
+        # Lúc Train lấy tối đa 16 người/batch để chống OOM. Lúc Val lấy hết.
+        max_rois = 64 if self.training else 100
+        if final_boxes.shape[0] > max_rois:
+            final_boxes = final_boxes[:max_rois]
+            final_batch_idx = final_batch_idx[:max_rois]
+            
+        return torch.cat([final_batch_idx.view(-1, 1).float(), final_boxes], dim=1)
 
 class OBB(Detect):
     """
