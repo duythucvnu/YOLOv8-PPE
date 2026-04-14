@@ -385,7 +385,7 @@ class DetectHF(Detect):
         
         # 5. GIỚI HẠN TUYỆT ĐỐI (Sampling)
         # Lúc Train lấy tối đa 16 người/batch để chống OOM. Lúc Val lấy hết.
-        max_rois = 64 if self.training else 100
+        max_rois = 32 if self.training else 100
         if final_boxes.shape[0] > max_rois:
             final_boxes = final_boxes[:max_rois]
             final_batch_idx = final_batch_idx[:max_rois]
