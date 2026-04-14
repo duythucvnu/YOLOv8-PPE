@@ -487,9 +487,7 @@ class v8HFDetectionLoss(v8DetectionLoss):
         
         # Nhánh Hierarchical vẫn dùng BCE tiêu chuẩn
         self.hier_bce = nn.BCEWithLogitsLoss(reduction="mean")
-        self.lambda_hier = 1.0 # Để tỉ lệ 1:1 cho cân bằng
-        
-        print(f"🚀 YOLO-HF Loss: Using Standard BCE (nc={self.nc}, nc_hier={self.nc_hier})")
+        self.lambda_hier = 2 # Để tỉ lệ 1:1 cho cân bằng
 
     def __call__(self, preds, batch):
         loss = torch.zeros(4, device=self.device) # box, cls, dfl, hier
