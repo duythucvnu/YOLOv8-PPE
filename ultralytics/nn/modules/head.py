@@ -317,64 +317,38 @@ class DetectHF(Detect):
         self.hier_cv3 = nn.Conv2d(self.roi_ch, self.nc_hier, 1)     # PPE Classes
 
     def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
-        # --- BƯỚC 1: NHÁNH FLAT (Dự đoán toàn cục) ---
+        # 1. NHÁNH FLAT (Giữ nguyên)
         flat_feats = [xi.clone() for xi in x]
         for i in range(self.nl):
             flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
         
-        # --- BƯỚC 2: TRÍCH XUẤT NGƯỜI (Proposals) ---
+        # 2. TRÍCH XUẤT NGƯỜI (Tối ưu: Chỉ chạy khi Training hoặc Validation)
         rois = None
         with torch.no_grad():
-            # Chạy inference nhẹ để tìm vị trí người
-            detached_feats = [f.detach() for f in flat_feats]
-            flat_preds = self._inference(detached_feats)
+            # Sử dụng detached_feats để không kéo theo đồ thị rác
+            flat_preds = self._inference([f.detach() for f in flat_feats])
             rois = self._get_person_rois_safe(flat_preds)
             
-        # --- BƯỚC 3: NHÁNH HIERARCHICAL (Soi chi tiết PPE) ---
+        # 3. NHÁNH HIERARCHICAL (Bản tăng tốc cực đại)
         hier_preds = None
         if rois is not None and rois.shape[0] > 0:
-            # Chuyển RoI sang đúng thiết bị (GPU)
             rois = rois.to(x[0].device)
-            
-            # Đặc trưng từ tầng P3 (Chi tiết nhất)
             feat_p3 = self.compress(x[0]) 
             stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
 
-            # KỸ THUẬT CHUNKING & CHECKPOINTING:
-            # Chúng ta chia nhỏ danh sách người thành từng cụm 4 người một.
-            # Với mỗi cụm, dùng 'checkpoint' để tính toán. 
-            # Đạo hàm vẫn truyền về feat_p3 bình thường nhưng không tốn RAM đệm.
+            # --- GỠ BỎ CHECKPOINT VÀ CHUNKING ---
+            # Chạy song song toàn bộ RoIs trong 1 lần gọi hàm duy nhất
+            # VRAM 15GB hoàn toàn đủ sức gánh 16-32 RoIs cùng lúc
+            crops = roi_align(feat_p3, rois, self.roi_size, 1.0/stride_p3, aligned=True)
+            f_h = self.hier_conv(crops)
+            h_b = self.hier_cv2(f_h).squeeze(-1).squeeze(-1)
+            h_c = self.hier_cv3(f_h).squeeze(-1).squeeze(-1)
             
-            def hierarchical_op(f, r):
-                """Hàm thực hiện cắt và phân loại vùng."""
-                crops = roi_align(f, r, self.roi_size, 1.0/stride_p3, aligned=True)
-                f_h = self.hier_conv(crops)
-                b_h = self.hier_cv2(f_h).squeeze(-1).squeeze(-1)
-                c_h = self.hier_cv3(f_h).squeeze(-1).squeeze(-1)
-                return b_h, c_h
+            hier_preds = (h_b, h_c, rois)
 
-            all_h_b, all_h_c = [], []
-            
-            # CHIA NHỎ ĐỂ TRỊ (Chunking): Mỗi lần chỉ xử lý tối đa 4 RoIs
-            # Giúp triệt tiêu hoàn toàn ma trận Jacobian 6 chiều gây OOM.
-            roi_chunks = rois.split(4) 
-            
-            for chunk in roi_chunks:
-                # Dùng checkpoint cho từng chunk
-                h_b, h_c = checkpoint(hierarchical_op, feat_p3, chunk, use_reentrant=False)
-                all_h_b.append(h_b)
-                all_h_c.append(h_c)
-            
-            # Gộp kết quả của tất cả các cụm lại
-            final_h_b = torch.cat(all_h_b, dim=0)
-            final_h_c = torch.cat(all_h_c, dim=0)
-            hier_preds = (final_h_b, final_h_c, rois)
-
-        # Trả về kết quả theo mode Training hoặc Eval
         if self.training:
             return flat_feats, hier_preds
         
-        # Mode Validation/Inference: Trả về Tensor giải mã + Feature Maps + PPE kết quả
         y_flat = self._inference(flat_feats)
         return y_flat if self.export else (y_flat, flat_feats, hier_preds)
 

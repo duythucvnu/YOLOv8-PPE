@@ -490,12 +490,22 @@ class v8HFDetectionLoss(v8DetectionLoss):
         self.lambda_hier = 2 # Để tỉ lệ 1:1 cho cân bằng
 
     def __call__(self, preds, batch):
-        loss = torch.zeros(4, device=self.device) # box, cls, dfl, hier
+        loss = torch.zeros(4, device=self.device)
         
-        # Bóc tách nhánh Flat và Hier
-        # preds[0] là flat_feats (list các feature maps)
-        # preds[1] là hier_preds (h_box, h_cls, rois)
-        flat_feats, hier_preds = preds
+        # =========================================================
+        # BẢN VÁ LỖI UNPACK: Tự động nhận diện mode Train/Val
+        # =========================================================
+        if isinstance(preds, (list, tuple)):
+            if len(preds) == 3:
+                # Mode Validation: Bỏ qua y_flat (giá trị đầu tiên)
+                _, flat_feats, hier_preds = preds
+            elif len(preds) == 2:
+                # Mode Training: Lấy đủ 2 giá trị
+                flat_feats, hier_preds = preds
+            else:
+                # Trường hợp dự phòng nếu có biến động khác
+                flat_feats = preds[0]
+                hier_preds = preds[1] if len(preds) > 1 else None
 
         # --- TÍNH TOÁN NHÁNH FLAT (Y hệt YOLOv8 gốc) ---
         pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
