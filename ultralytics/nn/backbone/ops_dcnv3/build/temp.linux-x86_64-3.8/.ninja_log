@@ -1,0 +1,4 @@
+# ninja log v5
+9	6131	1776747684514179900	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.8/app/ultralytics/nn/backbone/ops_dcnv3/src/cpu/dcnv3_cpu.o	f84ff32e69475b05
+15	12873	1776747691348147800	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.8/app/ultralytics/nn/backbone/ops_dcnv3/src/vision.o	85c8db1afc2149a4
+11	42351	1776747720795874000	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.8/app/ultralytics/nn/backbone/ops_dcnv3/src/cuda/dcnv3_cuda.o	6e72d4ce2c1c7abe

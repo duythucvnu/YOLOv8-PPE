@@ -1,0 +1,4 @@
+# ninja log v5
+55	15767	1776745524035829300	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.7/app/ultralytics/nn/backbone/ops_dcnv3/src/cpu/dcnv3_cpu.o	a8f676a789997d8d
+80	33741	1776745542048855700	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.7/app/ultralytics/nn/backbone/ops_dcnv3/src/vision.o	b6624aa0c38ac2c8
+74	73973	1776745582315504100	/app/ultralytics/nn/backbone/ops_dcnv3/build/temp.linux-x86_64-3.7/app/ultralytics/nn/backbone/ops_dcnv3/src/cuda/dcnv3_cuda.o	7d7f344d21cd013e

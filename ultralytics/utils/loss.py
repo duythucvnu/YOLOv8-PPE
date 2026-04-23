@@ -14,8 +14,6 @@ from ultralytics.utils.torch_utils import autocast
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 
-from torchvision.ops import box_iou
-
 
 class VarifocalLoss(nn.Module):
     """
@@ -32,7 +30,7 @@ class VarifocalLoss(nn.Module):
         https://arxiv.org/abs/2008.13367
     """
 
-    def __init__(self, gamma: float = 1.5, alpha: float = 0.75):
+    def __init__(self, gamma: float = 2.0, alpha: float = 0.75):
         """Initialize the VarifocalLoss class with focusing and balancing parameters."""
         super().__init__()
         self.gamma = gamma
@@ -51,26 +49,39 @@ class VarifocalLoss(nn.Module):
 
 
 class FocalLoss(nn.Module):
+    """
+    Wraps focal loss around existing loss_fcn(), i.e. criteria = FocalLoss(nn.BCEWithLogitsLoss(), gamma=1.5).
+
+    Implements the Focal Loss function for addressing class imbalance by down-weighting easy examples and focusing
+    on hard negatives during training.
+
+    Attributes:
+        gamma (float): The focusing parameter that controls how much the loss focuses on hard-to-classify examples.
+        alpha (torch.Tensor): The balancing factor used to address class imbalance.
+    """
+
     def __init__(self, gamma: float = 1.5, alpha: float = 0.25):
+        """Initialize FocalLoss class with focusing and balancing parameters."""
         super().__init__()
         self.gamma = gamma
         self.alpha = torch.tensor(alpha)
 
     def forward(self, pred: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+        """Calculate focal loss with modulating factors for class imbalance."""
         loss = F.binary_cross_entropy_with_logits(pred, label, reduction="none")
-        pred_prob = pred.sigmoid()
+        # p_t = torch.exp(-loss)
+        # loss *= self.alpha * (1.000001 - p_t) ** self.gamma  # non-zero power for gradient stability
+
+        # TF implementation https://github.com/tensorflow/addons/blob/v0.7.1/tensorflow_addons/losses/focal_loss.py
+        pred_prob = pred.sigmoid()  # prob from logits
         p_t = label * pred_prob + (1 - label) * (1 - pred_prob)
-        
-        p_t = p_t.clamp(min=1e-7, max=1-1e-7) 
         modulating_factor = (1.0 - p_t) ** self.gamma
         loss *= modulating_factor
-        
         if (self.alpha > 0).any():
             self.alpha = self.alpha.to(device=pred.device, dtype=pred.dtype)
             alpha_factor = label * self.alpha + (1 - label) * (1 - self.alpha)
             loss *= alpha_factor
-
-        return loss.sum()
+        return loss.mean(1).sum()
 
 
 class DFLoss(nn.Module):
@@ -114,7 +125,7 @@ class BboxLoss(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou_out = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, CIoU=True)
+        iou_out = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, WIoU=True)
         if isinstance(iou_out, tuple) and len(iou_out) == 3:
             r, wiou_loss_v1, iou = iou_out
             final_iou_loss = r * wiou_loss_v1
@@ -473,147 +484,6 @@ class v8SegmentationLoss(v8DetectionLoss):
                 loss += (proto * 0).sum() + (pred_masks * 0).sum()  # inf sums may lead to nan loss
 
         return loss / fg_mask.sum()
-
-
-
-class v8HFDetectionLoss(v8DetectionLoss):
-    def __init__(self, model, tal_topk: int = 10):
-        super().__init__(model, tal_topk)
-        
-        # Lấy thông số từ tầng DetectHF
-        m = model.model[-1]
-        self.nc_hier = getattr(m, 'nc_hier', 8)
-        self.person_cls_id = getattr(m, 'person_cls_id', 7)
-        
-        # Nhánh Hierarchical vẫn dùng BCE tiêu chuẩn
-        self.hier_bce = nn.BCEWithLogitsLoss(reduction="mean")
-        self.lambda_hier = 2 # Để tỉ lệ 1:1 cho cân bằng
-
-    def __call__(self, preds, batch):
-        loss = torch.zeros(4, device=self.device)
-        
-        # =========================================================
-        # BẢN VÁ LỖI UNPACK: Tự động nhận diện mode Train/Val
-        # =========================================================
-        if isinstance(preds, (list, tuple)):
-            if len(preds) == 3:
-                # Mode Validation: Bỏ qua y_flat (giá trị đầu tiên)
-                _, flat_feats, hier_preds = preds
-            elif len(preds) == 2:
-                # Mode Training: Lấy đủ 2 giá trị
-                flat_feats, hier_preds = preds
-            else:
-                # Trường hợp dự phòng nếu có biến động khác
-                flat_feats = preds[0]
-                hier_preds = preds[1] if len(preds) > 1 else None
-
-        # --- TÍNH TOÁN NHÁNH FLAT (Y hệt YOLOv8 gốc) ---
-        pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
-            (self.reg_max * 4, self.nc), 1
-        )
-        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
-        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-        
-        dtype = pred_scores.dtype
-        batch_size = pred_scores.shape[0]
-        imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
-        anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
-
-        # Targets & Decoding
-        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
-        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-        gt_labels, gt_bboxes = targets.split((1, 4), 2)
-        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
-
-        # Assigner
-        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
-            pred_scores.detach().sigmoid(),
-            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-            anchor_points * stride_tensor,
-            gt_labels,
-            gt_bboxes,
-            mask_gt,
-        )
-        target_scores_sum = max(target_scores.sum(), 1)
-
-        # ---------------------------------------------------------
-        # QUAY LẠI DÙNG BCE TIÊU CHUẨN CHO FLAT BRANCH
-        # ---------------------------------------------------------
-        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
-
-        # Box & DFL Loss
-        if fg_mask.sum():
-            target_bboxes /= stride_tensor
-            loss[0], loss[2] = self.bbox_loss(
-                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
-            )
-
-        # --- TÍNH TOÁN NHÁNH HIERARCHICAL ---
-        if hier_preds is not None:
-            h_box, h_cls, rois = hier_preds
-            # Chỉ lấy nhãn mục tiêu (no grad)
-            with torch.no_grad():
-                hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
-            
-            if hier_targets is not None and hier_targets.numel() > 0:
-                loss[3] = self.hier_bce(h_cls, hier_targets)
-
-        # Apply Gains
-        loss[0] *= self.hyp.box
-        loss[1] *= self.hyp.cls
-        loss[2] *= self.hyp.dfl
-        loss[3] *= self.lambda_hier
-
-        return loss.sum() * batch_size, loss.detach()
-
-    def _build_hier_targets(self, rois, targets, batch_size, nc_hier):
-            num_rois = rois.shape[0]
-            if num_rois == 0:
-                return None
-                
-            # Tạo target với size chuẩn nc_hier (8)
-            hier_targets = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.float32)
-            person_id = 7 # ID của lớp người
-            
-            for i in range(num_rois):
-                b_idx = int(rois[i, 0].item())
-                roi_box = rois[i, 1:5]
-                
-                batch_targets = targets[b_idx]
-                valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
-                b_targets = batch_targets[valid_mask]
-                
-                if b_targets.shape[0] == 0:
-                    continue
-                    
-                gt_classes = b_targets[:, 0].long()
-                gt_boxes = b_targets[:, 1:5]
-                
-                # Tính overlap
-                x1 = torch.max(roi_box[0], gt_boxes[:, 0])
-                y1 = torch.max(roi_box[1], gt_boxes[:, 1])
-                x2 = torch.min(roi_box[2], gt_boxes[:, 2])
-                y2 = torch.min(roi_box[3], gt_boxes[:, 3])
-                inter_area = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
-                gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-                
-                overlap_ratio = inter_area / (gt_area + 1e-6)
-                inside_mask = overlap_ratio > 0.5
-                
-                classes_inside = gt_classes[inside_mask]
-                
-                for cls_id in classes_inside:
-                    cls_id = int(cls_id.item())
-                    if cls_id == person_id:
-                        continue # Không học lớp person ở nhánh này
-                    
-                    ppe_id = cls_id if cls_id < person_id else cls_id - 1
-                    
-                    if ppe_id < nc_hier:
-                        hier_targets[i, ppe_id] = 1.0
-                    
-            return hier_targets
 
 
 class v8PoseLoss(v8DetectionLoss):
