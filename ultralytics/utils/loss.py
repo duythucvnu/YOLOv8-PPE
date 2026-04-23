@@ -125,7 +125,7 @@ class BboxLoss(nn.Module):
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Compute IoU and DFL losses for bounding boxes."""
         weight = target_scores.sum(-1)[fg_mask].unsqueeze(-1)
-        iou_out = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, MPDIoU=True)
+        iou_out = bbox_iou(pred_bboxes[fg_mask], target_bboxes[fg_mask], xywh=False, WIoU=True)
         if isinstance(iou_out, tuple) and len(iou_out) == 3:
             r, wiou_loss_v1, iou = iou_out
             final_iou_loss = r * wiou_loss_v1
