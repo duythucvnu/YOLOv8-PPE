@@ -19,9 +19,9 @@ import torch.nn as nn
 #from ultralytics.nn.backbone.UniRepLKNet import *
 #from ultralytics.nn.backbone.LSNet import *
 #from ultralytics.nn.backbone.MambaOut import *
-#from ultralytics.nn.backbone.CareTrans import *
+from ultralytics.nn.backbone.CareTrans import *
 #from ultralytics.nn.backbone.EfficientViM import *
-from ultralytics.nn.backbone.UniConvNet import *
+#from ultralytics.nn.backbone.UniConvNet import *
 #from ultralytics.nn.backbone.TinyViM import *
 #from ultralytics.nn.backbone.OverClock import *
 from ultralytics.nn.autobackend import check_class_names
@@ -1767,12 +1767,10 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         elif m in {#starnet_s050, starnet_s100, starnet_s150, starnet_s1, starnet_s2, starnet_s3, starnet_s4,
         #efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
         #MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
-        #convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge,
-        UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
-        #overlock_xt, overlock_t, overlock_s, overlock_b,
-        #unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
+        #convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
+        #overlock_xt, overlock_t, overlock_s, overlock_b, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
         #unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
-        #CARETrans_S0, CARETrans_S1, CARETrans_S2,
+        CARETrans_S0, CARETrans_S1, CARETrans_S2,
         #TinyViM_S, TinyViM_B, TinyViM_L, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4, lsknet_t, lsknet_s,
         }:
             m = m(*args)
