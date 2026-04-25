@@ -313,65 +313,76 @@ class DetectHF(Detect):
             Conv(self.roi_ch, self.roi_ch, 3),
             nn.AdaptiveAvgPool2d(1)
         )
-        self.hier_cv2 = nn.Conv2d(self.roi_ch, 4 * self.reg_max, 1) # Box offsets
+        self.hier_cv2 = nn.Conv2d(self.roi_ch, self.nc_hier * 4, 1)
         self.hier_cv3 = nn.Conv2d(self.roi_ch, self.nc_hier, 1)     # PPE Classes
 
     def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
-            # 1. NHÁNH FLAT
-            flat_feats = [xi.clone() for xi in x]
-            for i in range(self.nl):
-                flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
+        # --- BƯỚC 1: NHÁNH FLAT (Dự đoán toàn cục) ---
+        flat_feats = [xi.clone() for xi in x]
+        for i in range(self.nl):
+            flat_feats[i] = torch.cat((self.cv2[i](flat_feats[i]), self.cv3[i](flat_feats[i])), 1)
+        
+        # --- BƯỚC 2: TRÍCH XUẤT NGƯỜI (Proposals) ---
+        rois = None
+        with torch.no_grad():
+            # Chạy inference nhẹ để tìm vị trí người
+            detached_feats = [f.detach() for f in flat_feats]
+            flat_preds = self._inference(detached_feats)
+            rois = self._get_person_rois_safe(flat_preds)
             
-            # 2. PROPOSALS (VẪN DÙNG NO_GRAD)
-            rois = None
-            with torch.no_grad():
-                detached_feats = [f.detach() for f in flat_feats]
-                flat_preds = self._inference(detached_feats)
-                rois = self._get_person_rois_safe(flat_preds)
-                
-            # 3. NHÁNH HIERARCHICAL (BẢN CHỐNG NaN VÀ OOM)
-            hier_preds = None
+        # --- BƯỚC 3: NHÁNH HIERARCHICAL (Soi chi tiết PPE) ---
+        hier_preds = None
+        if rois is not None and rois.shape[0] > 0:
+            # Chuyển RoI sang đúng thiết bị (GPU)
+            rois = rois.to(x[0].device)
             
-            # BẮT BỘC KIỂM TRA MẢNG RỖNG VÀ SỐ LƯỢNG:
-            if rois is not None and rois.numel() > 0:
-                rois = rois.to(x[0].device)
-                feat_p3 = self.compress(x[0]) 
-                stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
+            # Đặc trưng từ tầng P3 (Chi tiết nhất)
+            feat_p3 = self.compress(x[0]) 
+            stride_p3 = self.stride[0] if self.stride.numel() > 0 else 8.0
 
-                # KHÔNG DÙNG CHECKPOINT HAY SPLIT NỮA. 
-                # Dùng rois.detach() đã đủ cứu VRAM rồi.
-                
-                # Kiểm tra kỹ để tránh truyền mảng rỗng vào roi_align
-                if rois.shape[0] > 0:
-                    # Dùng .detach() ở tọa độ để chống OOM
-                    person_crops = roi_align(
-                        feat_p3, 
-                        rois, 
-                        self.roi_size, 
-                        1.0/stride_p3, 
-                        aligned=True
-                    )
-                    
-                    # Để an toàn, chống NaN lây lan từ feat_p3
-                    person_crops = torch.nan_to_num(person_crops, nan=0.0)
-
-                    f_h = self.hier_conv(person_crops)
-                    h_b = self.hier_cv2(f_h).squeeze(-1).squeeze(-1)
-                    h_c = self.hier_cv3(f_h).squeeze(-1).squeeze(-1)
-                    
-                    hier_preds = (h_b, h_c, rois)
-
-            if self.training:
-                return flat_feats, hier_preds
+            # KỸ THUẬT CHUNKING & CHECKPOINTING:
+            # Chúng ta chia nhỏ danh sách người thành từng cụm 4 người một.
+            # Với mỗi cụm, dùng 'checkpoint' để tính toán. 
+            # Đạo hàm vẫn truyền về feat_p3 bình thường nhưng không tốn RAM đệm.
             
-            y_flat = self._inference(flat_feats)
-            return y_flat if self.export else (y_flat, flat_feats, hier_preds)
+            def hierarchical_op(f, r):
+                """Hàm thực hiện cắt và phân loại vùng."""
+                crops = roi_align(f, r, self.roi_size, 1.0/stride_p3, aligned=True)
+                f_h = self.hier_conv(crops)
+                b_h = self.hier_cv2(f_h).squeeze(-1).squeeze(-1)
+                c_h = self.hier_cv3(f_h).squeeze(-1).squeeze(-1)
+                return b_h, c_h
+
+            all_h_b, all_h_c = [], []
+            
+            # CHIA NHỎ ĐỂ TRỊ (Chunking): Mỗi lần chỉ xử lý tối đa 4 RoIs
+            # Giúp triệt tiêu hoàn toàn ma trận Jacobian 6 chiều gây OOM.
+            roi_chunks = rois.split(8) 
+            
+            for chunk in roi_chunks:
+                # Dùng checkpoint cho từng chunk
+                h_b, h_c = checkpoint(hierarchical_op, feat_p3, chunk, use_reentrant=False)
+                all_h_b.append(h_b)
+                all_h_c.append(h_c)
+            
+            # Gộp kết quả của tất cả các cụm lại
+            final_h_b = torch.cat(all_h_b, dim=0)
+            final_h_c = torch.cat(all_h_c, dim=0)
+            hier_preds = (final_h_b, final_h_c, rois)
+
+        # Trả về kết quả theo mode Training hoặc Eval
+        if self.training:
+            return flat_feats, hier_preds
+        
+        # Mode Validation/Inference: Trả về Tensor giải mã + Feature Maps + PPE kết quả
+        y_flat = self._inference(flat_feats)
+        return y_flat if self.export else (y_flat, flat_feats, hier_preds)
 
     def _get_person_rois_safe(self, preds: torch.Tensor) -> torch.Tensor:
-        """Hàm lấy RoI an toàn, chống lỗi Index và mất đồng bộ DDP."""
+        """Hàm lấy RoI an toàn, chống lỗi Index, mất đồng bộ DDP và chống NaN."""
         # preds shape: (B, 4+nc, N)
         boxes, scores = preds.split([4, self.nc], dim=1)
-        boxes = boxes.permute(0, 2, 1).contiguous()   # (B, N, 4)
+        boxes = boxes.permute(0, 2, 1).contiguous()   # (B, N, 4) -> Định dạng hiện tại là [cx, cy, w, h]
         scores = scores.permute(0, 2, 1).contiguous() # (B, N, nc)
         
         # Chỉ lấy score của class Person
@@ -379,17 +390,21 @@ class DetectHF(Detect):
         person_scores = torch.nan_to_num(scores[..., p_id], nan=0.0)
         
         B, N, _ = boxes.shape
-        # Tạo chỉ số batch cho từng anchor
         batch_idx = torch.arange(B, device=preds.device).view(-1, 1).expand(B, N).reshape(-1)
+        
         flat_boxes = boxes.reshape(-1, 4)
         flat_scores = person_scores.reshape(-1)
+        
+        # 1. CHUYỂN ĐỔI TỌA ĐỘ: [cx, cy, w, h] ->[x1, y1, x2, y2]
+        flat_boxes = xywh2xyxy(flat_boxes)
         
         # Lọc nhanh TopK để NMS không bị nghẽn
         k = min(100 * B, flat_scores.numel())
         topk_scores, topk_idx = torch.topk(flat_scores, k)
         
-        # Ngưỡng tin cậy tối thiểu để coi là Người
-        mask = topk_scores > 0.25
+        # Ngưỡng tin cậy tối thiểu để coi là Người (Có thể giảm xuống 0.1 lúc train để có nhiều samples)
+        conf_thresh = 0.1 if self.training else 0.25
+        mask = topk_scores > conf_thresh
         if not mask.any():
             return None
             
@@ -397,17 +412,32 @@ class DetectHF(Detect):
         f_scores = topk_scores[mask]
         f_batch_idx = batch_idx[topk_idx][mask]
         
-        # Batched NMS: Xử lý song song cho cả batch, cực kỳ ổn định
+        # 2. CHỐT CHẶN CHỐNG NAN (VÔ CÙNG QUAN TRỌNG)
+        # Tính Width và Height thực tế sau khi chuyển đổi
+        widths = f_boxes[:, 2] - f_boxes[:, 0]
+        heights = f_boxes[:, 3] - f_boxes[:, 1]
+        
+        # Chỉ giữ lại các box lớn hơn 2 pixel (tránh chia cho 0 trong roi_align)
+        valid_size_mask = (widths > 2.0) & (heights > 2.0)
+        
+        f_boxes = f_boxes[valid_size_mask]
+        f_scores = f_scores[valid_size_mask]
+        f_batch_idx = f_batch_idx[valid_size_mask]
+        
+        # Kiểm tra xem còn box nào sống sót sau khi lọc không
+        if f_boxes.shape[0] == 0:
+            return None
+
+        # Batched NMS: Xử lý song song cho cả batch
         keep = batched_nms(f_boxes, f_scores, f_batch_idx, iou_threshold=0.45)
         
         final_boxes = f_boxes[keep]
         final_batch_idx = f_batch_idx[keep]
         
-        # CHỐT CHẶN VRAM: 
-        # Lúc train: 16 người/batch là đủ để Backbone học. 
-        # Lúc test: Lấy hết 100 người để đảm bảo Recall.
+        # CHỐT CHẶN VRAM
         max_total = 32 if self.training else 100
         if final_boxes.shape[0] > max_total:
+            # Ưu tiên giữ lại các box có score cao nhất thay vì cắt ngang bừa bãi
             final_boxes = final_boxes[:max_total]
             final_batch_idx = final_batch_idx[:max_total]
             

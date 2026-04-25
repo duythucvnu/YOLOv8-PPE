@@ -485,29 +485,28 @@ class v8HFDetectionLoss(v8DetectionLoss):
         self.nc_hier = getattr(m, 'nc_hier', 8)
         self.person_cls_id = getattr(m, 'person_cls_id', 7)
         
-        # Nhánh Hierarchical vẫn dùng BCE tiêu chuẩn
+        # Nhánh Hierarchical
         self.hier_bce = nn.BCEWithLogitsLoss(reduction="mean")
-        self.lambda_hier = 2 # Để tỉ lệ 1:1 cho cân bằng
+        self.lambda_hier_cls = 2.0  # Trọng số cho phân loại PPE
+        self.lambda_hier_box = 1.5  # Trọng số cho tọa độ PPE
+        
+        # Cập nhật tên hiển thị trên thanh Progress Bar
+        self.loss_names =['box_loss', 'cls_loss', 'dfl_loss', 'hier_cls_loss', 'hier_box_loss']
 
     def __call__(self, preds, batch):
-        loss = torch.zeros(4, device=self.device)
+        # KHỞI TẠO TENSOR LOSS GỒM 5 PHẦN TỬ
+        loss = torch.zeros(5, device=self.device)
         
-        # =========================================================
-        # BẢN VÁ LỖI UNPACK: Tự động nhận diện mode Train/Val
-        # =========================================================
         if isinstance(preds, (list, tuple)):
             if len(preds) == 3:
-                # Mode Validation: Bỏ qua y_flat (giá trị đầu tiên)
                 _, flat_feats, hier_preds = preds
             elif len(preds) == 2:
-                # Mode Training: Lấy đủ 2 giá trị
                 flat_feats, hier_preds = preds
             else:
-                # Trường hợp dự phòng nếu có biến động khác
                 flat_feats = preds[0]
                 hier_preds = preds[1] if len(preds) > 1 else None
 
-        # --- TÍNH TOÁN NHÁNH FLAT (Y hệt YOLOv8 gốc) ---
+        # --- 1. TÍNH TOÁN NHÁNH FLAT (Y hệt YOLOv8 gốc) ---
         pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
             (self.reg_max * 4, self.nc), 1
         )
@@ -519,14 +518,12 @@ class v8HFDetectionLoss(v8DetectionLoss):
         imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
         anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
 
-        # Targets & Decoding
         targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
         targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
         gt_labels, gt_bboxes = targets.split((1, 4), 2)
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
 
-        # Assigner
         _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
@@ -537,83 +534,115 @@ class v8HFDetectionLoss(v8DetectionLoss):
         )
         target_scores_sum = max(target_scores.sum(), 1)
 
-        # ---------------------------------------------------------
-        # QUAY LẠI DÙNG BCE TIÊU CHUẨN CHO FLAT BRANCH
-        # ---------------------------------------------------------
         loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
 
-        # Box & DFL Loss
         if fg_mask.sum():
             target_bboxes /= stride_tensor
             loss[0], loss[2] = self.bbox_loss(
                 pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
 
-        # --- TÍNH TOÁN NHÁNH HIERARCHICAL ---
+        # --- 2. TÍNH TOÁN NHÁNH HIERARCHICAL ---
         if hier_preds is not None:
-            h_box, h_cls, rois = hier_preds
-            # Chỉ lấy nhãn mục tiêu (no grad)
-            with torch.no_grad():
-                hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
+            h_box_raw, h_cls_raw, rois = hier_preds
             
-            if hier_targets is not None and hier_targets.numel() > 0:
-                loss[3] = self.hier_bce(h_cls, hier_targets)
+            with torch.no_grad():
+                targets_out = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
+            
+            if targets_out is not None:
+                hier_cls_targets, hier_box_targets, hier_box_mask = targets_out
+                
+                # A. Phân loại PPE (Classification)
+                loss[3] = self.hier_bce(h_cls_raw, hier_cls_targets)
+                
+                # B. Tọa độ PPE (Bounding Box Regression)
+                # Reshape h_box_raw từ [N, nc_hier * 4] -> [N, nc_hier, 4] và đưa về dạng [0, 1]
+                h_box_pred = h_box_raw.view(-1, self.nc_hier, 4).sigmoid()
+                
+                # Chỉ tính Box Loss cho những PPE THỰC SỰ CÓ TRÊN NGƯỜI (mask == True)
+                if hier_box_mask.sum() > 0:
+                    pred_boxes = h_box_pred[hier_box_mask]       # [Số lượng PPE thực tế, 4]
+                    tgt_boxes = hier_box_targets[hier_box_mask]  # [Số lượng PPE thực tế, 4]
+                    
+                    # Dùng GIoU Loss (xywh=False vì dữ liệu đã là dạng x1,y1,x2,y2)
+                    iou = bbox_iou(pred_boxes, tgt_boxes, xywh=False, GIoU=True)
+                    loss[4] = (1.0 - iou).mean() # Loss = 1 - GIoU
 
         # Apply Gains
         loss[0] *= self.hyp.box
         loss[1] *= self.hyp.cls
         loss[2] *= self.hyp.dfl
-        loss[3] *= self.lambda_hier
+        loss[3] *= self.lambda_hier_cls
+        loss[4] *= self.lambda_hier_box
 
         return loss.sum() * batch_size, loss.detach()
 
     def _build_hier_targets(self, rois, targets, batch_size, nc_hier):
-            num_rois = rois.shape[0]
-            if num_rois == 0:
-                return None
-                
-            # Tạo target với size chuẩn nc_hier (8)
-            hier_targets = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.float32)
-            person_id = 7 # ID của lớp người
+        num_rois = rois.shape[0]
+        if num_rois == 0:
+            return None
             
-            for i in range(num_rois):
-                b_idx = int(rois[i, 0].item())
-                roi_box = rois[i, 1:5]
+        # Các Tensor lưu trữ mục tiêu
+        hier_cls_targets = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.float32)
+        hier_box_targets = torch.zeros((num_rois, nc_hier, 4), device=self.device, dtype=torch.float32)
+        hier_box_mask = torch.zeros((num_rois, nc_hier), device=self.device, dtype=torch.bool)
+        
+        person_id = self.person_cls_id
+        
+        for i in range(num_rois):
+            b_idx = int(rois[i, 0].item())
+            roi_box = rois[i, 1:5]
+            
+            rw = roi_box[2] - roi_box[0]
+            rh = roi_box[3] - roi_box[1]
+            if rw <= 0 or rh <= 0: continue # Bỏ qua box bị lỗi diện tích = 0
+            
+            batch_targets = targets[b_idx]
+            valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
+            b_targets = batch_targets[valid_mask]
+            
+            if b_targets.shape[0] == 0: continue
                 
-                batch_targets = targets[b_idx]
-                valid_mask = batch_targets[:, 1:5].sum(dim=1) > 0
-                b_targets = batch_targets[valid_mask]
+            gt_classes = b_targets[:, 0].long()
+            gt_boxes = b_targets[:, 1:5]
+            
+            # Tính phần giao nhau (Intersection) giữa RoI (Người) và GT (PPE)
+            x1 = torch.max(roi_box[0], gt_boxes[:, 0])
+            y1 = torch.max(roi_box[1], gt_boxes[:, 1])
+            x2 = torch.min(roi_box[2], gt_boxes[:, 2])
+            y2 = torch.min(roi_box[3], gt_boxes[:, 3])
+            
+            inter_area = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
+            gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
+            
+            # Đồ bảo hộ phải nằm hơn 50% diện tích bên trong bounding box Người
+            overlap_ratio = inter_area / (gt_area + 1e-6)
+            inside_mask = overlap_ratio > 0.5
+            
+            # Lấy index của các PPE thỏa mãn
+            valid_gt_indices = torch.where(inside_mask)[0]
+            
+            for idx in valid_gt_indices:
+                cls_id = int(gt_classes[idx].item())
+                if cls_id == person_id: continue # Không gán nhãn người cho nhánh con
                 
-                if b_targets.shape[0] == 0:
-                    continue
+                ppe_id = cls_id if cls_id < person_id else cls_id - 1
+                
+                if ppe_id < nc_hier:
+                    # Đánh dấu Class PPE này CÓ TỒN TẠI trên người này
+                    hier_cls_targets[i, ppe_id] = 1.0
+                    hier_box_mask[i, ppe_id] = True
                     
-                gt_classes = b_targets[:, 0].long()
-                gt_boxes = b_targets[:, 1:5]
-                
-                # Tính overlap
-                x1 = torch.max(roi_box[0], gt_boxes[:, 0])
-                y1 = torch.max(roi_box[1], gt_boxes[:, 1])
-                x2 = torch.min(roi_box[2], gt_boxes[:, 2])
-                y2 = torch.min(roi_box[3], gt_boxes[:, 3])
-                inter_area = (x2 - x1).clamp(min=0) * (y2 - y1).clamp(min=0)
-                gt_area = (gt_boxes[:, 2] - gt_boxes[:, 0]) * (gt_boxes[:, 3] - gt_boxes[:, 1])
-                
-                overlap_ratio = inter_area / (gt_area + 1e-6)
-                inside_mask = overlap_ratio > 0.5
-                
-                classes_inside = gt_classes[inside_mask]
-                
-                for cls_id in classes_inside:
-                    cls_id = int(cls_id.item())
-                    if cls_id == person_id:
-                        continue # Không học lớp person ở nhánh này
+                    # TÍNH TỌA ĐỘ TƯƠNG ĐỐI CỦA PPE SO VỚI NGƯỜI (Chuẩn hóa 0 -> 1)
+                    # Cắt xén phần thừa bên ngoài RoI
+                    nx1 = (x1[idx] - roi_box[0]) / rw
+                    ny1 = (y1[idx] - roi_box[1]) / rh
+                    nx2 = (x2[idx] - roi_box[0]) / rw
+                    ny2 = (y2[idx] - roi_box[1]) / rh
                     
-                    ppe_id = cls_id if cls_id < person_id else cls_id - 1
-                    
-                    if ppe_id < nc_hier:
-                        hier_targets[i, ppe_id] = 1.0
-                    
-            return hier_targets
+                    hier_box_targets[i, ppe_id] = torch.tensor([nx1, ny1, nx2, ny2], device=self.device)
+                
+        return hier_cls_targets, hier_box_targets, hier_box_mask
 
 
 class v8PoseLoss(v8DetectionLoss):
