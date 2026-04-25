@@ -358,7 +358,7 @@ class DetectHF(Detect):
             
             # CHIA NHỎ ĐỂ TRỊ (Chunking): Mỗi lần chỉ xử lý tối đa 4 RoIs
             # Giúp triệt tiêu hoàn toàn ma trận Jacobian 6 chiều gây OOM.
-            roi_chunks = rois.split(8) 
+            roi_chunks = rois.split(4) 
             
             for chunk in roi_chunks:
                 # Dùng checkpoint cho từng chunk
