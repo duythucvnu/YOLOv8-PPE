@@ -15,7 +15,13 @@ class BiFPN_Concat2(nn.Module):
     def forward(self, x):
         w = self.w
         weight = w / (torch.sum(w, dim=0) + self.epsilon)
-        x = [weight[0] * x[0], weight[1] * x[1]]
+
+        target_shape = x[0].shape[2:] 
+        x1 = x[1]
+        if x1.shape[2:] != target_shape:
+            x1 = F.interpolate(x1, size=target_shape, mode='nearest')
+
+        x = [weight[0] * x[0], weight[1] * x1]
         return torch.cat(x, self.d)
 
 
