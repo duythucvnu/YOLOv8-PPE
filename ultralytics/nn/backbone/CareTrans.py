@@ -197,7 +197,8 @@ class CAREStage(nn.Module):
         drop_path_rates = drop_path_rates or [0.] * depth
         stage_blocks = []
         for i in range(depth):
-            if (stage+1)==4 and (i+1)==depth: last = True
+            #if (stage+1)==4 and (i+1)==depth: last = True
+            if (stage+1)==4 and (i+1)==depth: last = False
             else: last = False
             stage_blocks.append(
                 CAREBlock(
