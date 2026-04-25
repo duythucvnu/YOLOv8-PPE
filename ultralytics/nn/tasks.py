@@ -1797,6 +1797,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         else:
             c2 = ch[f]
 
+
         repeat_modules = {C2f}
         if m in repeat_modules:
                 args.insert(2, n) # Truyền n vào bên trong C2f
