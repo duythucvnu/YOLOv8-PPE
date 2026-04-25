@@ -286,7 +286,7 @@ class LSNet(torch.nn.Module):
                 blk.append(Conv2d_BN(embed_dim[i], embed_dim[i+1], ks=1, stride=1, pad=0))
                 resolution = resolution_
 
-        self.channel = [embed_dim[0], embed_dim[1], embed_dim[2]]
+        self.channel = [embed_dim[0], embed_dim[1], embed_dim[2], embed_dim[3]]
 
     @torch.jit.ignore # type: ignore
     def no_weight_decay(self):
