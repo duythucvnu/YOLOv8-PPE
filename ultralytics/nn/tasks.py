@@ -217,17 +217,8 @@ class BaseModel(torch.nn.Module):
                     # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
                     x = x[-1]
                 else:
-                    if isinstance(x, list):
-                        if "Head" in m.type or "Detect" in m.type:
-                            x = m(x)
-                        else:
-                            try:
-                                x = m(*x)
-                            except TypeError:
-                                x = m(x)
-                    else:
-                        # Nếu x chỉ là 1 tensor bình thường (Conv, C2f...)
-                        x = m(x)
+
+                    x = m(x)
                     #x = m(x)  # run
                     y.append(x if m.i in self.save else None)  # save output
                 
