@@ -15,7 +15,7 @@ import warnings
 from copy import copy, deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
-
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import numpy as np
 import torch
 from torch import distributed as dist
@@ -55,7 +55,7 @@ from ultralytics.utils.torch_utils import (
     unset_deterministic,
 )
 
-torch.autograd.set_detect_anomaly(True)
+#torch.autograd.set_detect_anomaly(True)
 
 class BaseTrainer:
     """
