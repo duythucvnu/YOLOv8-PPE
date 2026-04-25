@@ -17,7 +17,7 @@ from ultralytics.nn.backbone.RepViT_DyT import *
 from ultralytics.nn.backbone.MobileNetV4 import *
 from ultralytics.nn.backbone.ConvNeXtV2 import *
 #from ultralytics.nn.backbone.UniRepLKNet import *
-#from ultralytics.nn.backbone.LSNet import *
+from ultralytics.nn.backbone.LSNet import *
 #from ultralytics.nn.backbone.MambaOut import *
 #from ultralytics.nn.backbone.CareTrans import *
 #from ultralytics.nn.backbone.EfficientViM import *
