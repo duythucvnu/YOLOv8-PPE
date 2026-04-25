@@ -1778,7 +1778,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c2 = m.channel
         else:
             c2 = ch[f]
-        """
+
         print(f"DEBUG LAYER {i+4}:")
         print(f"  - Module: {t}")
         print(f"  - From: {f}")
@@ -1788,7 +1788,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         print("-" * 30)
         # -------------------
 
-        """
+
         if isinstance(c2, list):
             is_backbone = True
             m_ = m
