@@ -55,6 +55,7 @@ from ultralytics.utils.torch_utils import (
     unset_deterministic,
 )
 
+torch.autograd.set_detect_anomaly(True)
 
 class BaseTrainer:
     """
