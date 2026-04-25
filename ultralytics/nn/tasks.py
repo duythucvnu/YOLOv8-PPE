@@ -9,17 +9,17 @@ from pathlib import Path
 
 import torch
 import torch.nn as nn
-#from ultralytics.nn.backbone.StarNet import *
-#from ultralytics.nn.backbone.LSKNet import *
-#from ultralytics.nn.backbone.EfficientFormerV2 import *
-#from ultralytics.nn.backbone.RepViT import *
-#from ultralytics.nn.backbone.RepViT_DyT import *
-#from ultralytics.nn.backbone.MobileNetV4 import *
-#from ultralytics.nn.backbone.ConvNeXtV2 import *
+from ultralytics.nn.backbone.StarNet import *
+from ultralytics.nn.backbone.LSKNet import *
+from ultralytics.nn.backbone.EfficientFormerV2 import *
+from ultralytics.nn.backbone.RepViT import *
+from ultralytics.nn.backbone.RepViT_DyT import *
+from ultralytics.nn.backbone.MobileNetV4 import *
+from ultralytics.nn.backbone.ConvNeXtV2 import *
 #from ultralytics.nn.backbone.UniRepLKNet import *
-from ultralytics.nn.backbone.LSNet import *
+#from ultralytics.nn.backbone.LSNet import *
 #from ultralytics.nn.backbone.MambaOut import *
-from ultralytics.nn.backbone.CareTrans import *
+#from ultralytics.nn.backbone.CareTrans import *
 #from ultralytics.nn.backbone.EfficientViM import *
 #from ultralytics.nn.backbone.UniConvNet import *
 #from ultralytics.nn.backbone.TinyViM import *
@@ -85,6 +85,7 @@ from ultralytics.nn.modules import (
     YOLOEDetect,
     YOLOESegment,
     v10Detect,
+    DetectHF,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, YAML, colorstr, emojis
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -95,6 +96,7 @@ from ultralytics.utils.loss import (
     v8OBBLoss,
     v8PoseLoss,
     v8SegmentationLoss,
+    v8HFDetectionLoss,
 )
 from ultralytics.utils.ops import make_divisible
 from ultralytics.utils.plotting import feature_visualization
@@ -217,8 +219,17 @@ class BaseModel(torch.nn.Module):
                     # print(f'layer id:{idx:>2} {m.type:>50} output shape:{", ".join([str(x_.size()) for x_ in x if x_ is not None])}')
                     x = x[-1]
                 else:
-
-                    x = m(x)
+                    if isinstance(x, list):
+                        if "Head" in m.type or "Detect" in m.type:
+                            x = m(x)
+                        else:
+                            try:
+                                x = m(*x)
+                            except TypeError:
+                                x = m(x)
+                    else:
+                        # Nếu x chỉ là 1 tensor bình thường (Conv, C2f...)
+                        x = m(x)
                     #x = m(x)  # run
                     y.append(x if m.i in self.save else None)  # save output
                 
@@ -347,7 +358,7 @@ class BaseModel(torch.nn.Module):
         self = super()._apply(fn)
         m = self.model[-1]  # Detect()
         if isinstance(
-            m, (Detect, Detect_ASFF #Detect_dyhead, ADDWConvHead, Detect_DBB
+            m, (Detect, DetectHF, #Detect_ASFF, Detect_dyhead, ADDWConvHead, Detect_DBB
                 )
         ):  # includes all Detect subclasses like Segment, Pose, OBB, WorldDetect, YOLOEDetect, YOLOESegment
             m.stride = fn(m.stride)
@@ -460,16 +471,26 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Detect_ASFF #Detect_dyhead, ADDWConvHead, Detect_DBB
+        if isinstance(m, (Detect, DetectHF #Detect_ASFF, Detect_dyhead, ADDWConvHead, Detect_DBB
         )):  # includes all Detect subclasses like Segment, Pose, OBB, YOLOEDetect, YOLOESegment
             s = 256  # 2x min stride
             m.inplace = self.inplace
 
             def _forward(x):
-                """Perform a forward pass through the model, handling different Detect subclass types accordingly."""
+                if self.end2end:
+                    return self.forward(x)["one2many"]
+                
+                res = self.forward(x)
+                if isinstance(m, DetectHF):
+                    return res[0]  # Lấy flat_feats (danh sách các feature maps P3, P4, P5)
+                
+                return res[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else res
+            """
+            def _forward(x):
                 if self.end2end:
                     return self.forward(x)["one2many"]
                 return self.forward(x)[0] if isinstance(m, (Segment, YOLOESegment, Pose, OBB)) else self.forward(x)
+            """
 
             self.model.eval()  # Avoid changing batch statistics until training begins
             m.training = True  # Setting it to True to properly return strides
@@ -553,8 +574,11 @@ class DetectionModel(BaseModel):
         y[-1] = y[-1][..., i:]  # small
         return y
 
-    def init_criterion(self):
-        """Initialize the loss criterion for the DetectionModel."""
+    def init_criterion(self):        
+        m = self.model[-1]
+        if isinstance(m, DetectHF):
+            return v8HFDetectionLoss(self)
+            
         return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 
@@ -590,7 +614,12 @@ class OBBModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the model."""
         return v8OBBLoss(self)
-
+    def init_criterion(self):        
+        m = self.model[-1]
+        if isinstance(m, DetectHF):
+            return v8HFDetectionLoss(self)
+            
+        return E2EDetectLoss(self) if getattr(self, "end2end", False) else v8DetectionLoss(self)
 
 class SegmentationModel(DetectionModel):
     """
@@ -1736,7 +1765,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         #elif m in {MLLAttention}:
         #    c2 = ch[f]
         #    args = [c2, *args]
-        elif m in frozenset({Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, Detect_ASFF #Detect_dyhead, ADDWConvHead, Detect_DBB
+        elif m in frozenset({Detect, WorldDetect, Segment, Pose, OBB, ImagePoolingAttn, v10Detect, DetectHF, #Detect_ASFF, Detect_dyhead, ADDWConvHead, Detect_DBB
             }):
             args.append([ch[x] for x in f])
         elif m is RTDETRDecoder:  # special case, channels arg must be passed in index 1
@@ -1755,27 +1784,19 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             elif len(args) == 1:
                 m = timm.create_model(m, pretrained=args[0], features_only=True)
             c2 = m.feature_info.channels()
-        elif m in {#starnet_s050, starnet_s100, starnet_s150, starnet_s1, starnet_s2, starnet_s3, starnet_s4,
-        #efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
-        #MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
-        #convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
-        #overlock_xt, overlock_t, overlock_s, overlock_b, unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
-        #unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl,
-        lsnet_t, lsnet_s, lsnet_b,# mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
-        CARETrans_S0, CARETrans_S1, CARETrans_S2,
-        #TinyViM_S, TinyViM_B, TinyViM_L, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4, lsknet_t, lsknet_s,
+        elif m in {lsknet_t, lsknet_s, starnet_s050, starnet_s100, starnet_s150, starnet_s1, starnet_s2, starnet_s3, starnet_s4,
+        efficientformerv2_s0, efficientformerv2_s1, efficientformerv2_s2, efficientformerv2_l, MobileNetV4ConvSmall, MobileNetV4ConvMedium, MobileNetV4ConvLarge,
+        MobileNetV4HybridMedium, MobileNetV4HybridLarge, repvit_m0_9, repvit_m1_0, repvit_m1_1, repvit_m1_5, repvit_m2_3, convnextv2_atto, convnextv2_femto,
+        convnextv2_pico, convnextv2_nano, convnextv2_tiny, convnextv2_base, convnextv2_large, convnextv2_huge, #unireplknet_a, unireplknet_f, unireplknet_p, unireplknet_n,
+        #unireplknet_t, unireplknet_s, unireplknet_b, unireplknet_l, unireplknet_xl, lsnet_t, lsnet_s, lsnet_b, mambaout_femto, mambaout_kobe, mambaout_tiny,mambaout_small,mambaout_base,
+        #CARETrans_S0, CARETrans_S1, CARETrans_S2, #UniConvNet_A, UniConvNet_P0, UniConvNet_P1, UniConvNet_P2,
+        #TinyViM_S, TinyViM_B, TinyViM_L, overlock_xt, overlock_t, overlock_s, overlock_b, EfficientViM_M1, EfficientViM_M2, EfficientViM_M3, EfficientViM_M4,
         }:
             m = m(*args)
             c2 = m.channel
         else:
             c2 = ch[f]
-
-        repeat_modules = {C2f}
-        if m in repeat_modules:
-                args.insert(2, n) # Truyền n vào bên trong C2f
-                n = 1 
- 
-
+        """
         print(f"DEBUG LAYER {i+4}:")
         print(f"  - Module: {t}")
         print(f"  - From: {f}")
@@ -1785,9 +1806,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
         print("-" * 30)
         # -------------------
 
-
-
-
+        """
         if isinstance(c2, list):
             is_backbone = True
             m_ = m
@@ -1978,7 +1997,7 @@ def guess_model_task(model):
                 return "pose"
             elif isinstance(m, OBB):
                 return "obb"
-            elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect, Detect_ASFF #Detect_dyhead, ADDWConvHead, Detect_DBB
+            elif isinstance(m, (Detect, WorldDetect, YOLOEDetect, v10Detect, DetectHF #Detect_ASFF, Detect_dyhead, ADDWConvHead, Detect_DBB
                 )):
                 return "detect"
 

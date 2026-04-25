@@ -433,7 +433,7 @@ class BaseTrainer:
                 # Log
                 if RANK in {-1, 0}:
                     loss_length = self.tloss.shape[0] if len(self.tloss.shape) else 1
-
+                    
                     pbar.set_description(
                         ("%11s" * 2 + "%11.4g" * (2 + loss_length))
                         % (

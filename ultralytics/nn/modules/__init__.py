@@ -91,6 +91,7 @@ from .head import (
     YOLOEDetect,
     YOLOESegment,
     v10Detect,
+    DetectHF,
 )
 from .transformer import (
     AIFI,

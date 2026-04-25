@@ -18,7 +18,11 @@ from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment"
+import torchvision
+from torchvision.ops import roi_align
+from ultralytics.utils.ops import non_max_suppression
+
+__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment", "DetectHF"
 
 
 class Detect(nn.Module):
@@ -280,6 +284,147 @@ class Segment(Detect):
         if self.training:
             return x, mc, p
         return (torch.cat([x, mc], 1), p) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p))
+
+
+class DetectHF(Detect):
+    """
+    Hierarchical-Flat Detection Head.
+    
+    Hybrid architecture:
+    - Branch 1 (Flat): Predicts the entire image like the original YOLOv8
+    - Branch 2 (Hierarchical): Automatically extracts "person" regions and detects PPE inside.
+    """
+    
+    def __init__(self, nc: int = 80, nc_hier: int = 8, person_cls_id: int = 0, ch: Tuple = ()):
+        """
+        Initialize DetectHF.
+        Args:
+            nc (int): Total number of classes for the Flat branch
+            nc_hier (int): Number of classes for the Hierarchical branch
+            person_cls_id (int): ID of the 'person' class in the dataset.
+            ch (tuple): Feature map channels from the backbone.
+        """
+        super().__init__(nc, ch)
+        self.nc_hier = nc_hier
+        self.person_cls_id = person_cls_id
+        
+        self.roi_size = (7, 7) # Standard size for RoI Align
+        
+        # Extract features from P4
+        roi_channels = ch[1] 
+        
+        # CNN network to process RoI regions (7x7) into box and class predictions
+        self.hier_conv = nn.Sequential(
+            Conv(roi_channels, roi_channels, 3), # Convolution keeping channel size unchanged
+            nn.AdaptiveAvgPool2d(1)              # Global Average Pooling -> shape: (N, C, 1, 1)
+        )
+        
+        # Prediction heads for the Hierarchical branch
+        self.hier_cv2 = nn.Conv2d(roi_channels, 4 * self.reg_max, 1) # Box (relative to person)
+        self.hier_cv3 = nn.Conv2d(roi_channels, self.nc_hier, 1)     # Classes (PPE)
+
+    def forward(self, x: List[torch.Tensor], gt_rois: torch.Tensor = None) -> Union[Tuple, List[torch.Tensor]]:
+
+        flat_feats = []
+        for i in range(self.nl):
+            feat = torch.cat((self.cv2[i](x[i]), self.cv3[i](x[i])), 1)
+            flat_feats.append(feat)
+
+        
+        rois = None
+        if self.training and gt_rois is not None:
+            rois = gt_rois
+        else:
+            with torch.no_grad():
+                detached_feats = [xi.detach() for xi in flat_feats]
+                flat_preds = self._inference(detached_feats)
+                rois = self._get_person_rois(flat_preds, x[0].shape[0], conf_thres=0.25)
+            
+        hier_preds = None
+
+        #=======
+        """
+        if rois is not None and rois.shape[0] > 0:
+            feat_p4 = x[1] 
+            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
+
+            num_rois = rois.shape[0]
+
+            if num_rois > 20: 
+                mem_alloc = torch.cuda.memory_allocated() / (1024**3)
+                print(f"\n[DEBUG] Batch này có {num_rois} người. VRAM đang dùng: {mem_alloc:.2f} GB")
+                print(f"[DEBUG] Kích thước feat_p4: {feat_p4.shape}")
+            # =========================================
+            
+            person_crops = roi_align(
+                feat_p4, 
+                rois, 
+                output_size=self.roi_size, 
+                spatial_scale=1.0 / stride_p4, 
+                aligned=True
+            )
+        """
+        if rois is not None and rois.shape[0] > 0:
+            feat_p4 = x[1] 
+            stride_p4 = self.stride[1] if self.stride.numel() > 0 else 16.0
+            
+            person_crops = roi_align(
+                feat_p4, 
+                rois, 
+                output_size=self.roi_size, 
+                spatial_scale=1.0 / stride_p4, 
+                aligned=True
+            )
+            
+            hier_feat = self.hier_conv(person_crops) 
+            hier_box = self.hier_cv2(hier_feat).squeeze(-1).squeeze(-1) 
+            hier_cls = self.hier_cv3(hier_feat).squeeze(-1).squeeze(-1) 
+            
+            hier_preds = (hier_box, hier_cls, rois)
+
+        if self.training:
+            return flat_feats, hier_preds
+        
+        y_flat = self._inference(flat_feats)
+        return (y_flat, hier_preds) if self.export else (y_flat, flat_feats, hier_preds)
+
+
+    def _get_person_rois(self, preds: torch.Tensor, batch_size: int, conf_thres: float = 0.25) -> torch.Tensor:
+        rois_list = []
+
+        boxes, scores = preds.split([4, self.nc], dim=1)
+        
+        boxes = boxes.permute(0, 2, 1).contiguous()   # -> (B, N, 4)
+        scores = scores.permute(0, 2, 1).contiguous() # -> (B, N, nc)
+        
+        person_scores = scores[..., self.person_cls_id] # Get scores for the "person" class
+        
+        for b in range(batch_size):
+            # Filter by confidence threshold
+            mask = person_scores[b] > conf_thres
+            b_boxes = boxes[b][mask]
+            b_scores = person_scores[b][mask]
+            
+            if b_boxes.shape[0] == 0:
+                continue
+            
+            keep = torchvision.ops.nms(b_boxes, b_scores, iou_threshold=0.45)
+            final_boxes = b_boxes[keep]
+            max_rois_per_image = 50
+            if final_boxes.shape[0] > max_rois_per_image:
+                topk_indices = torch.topk(b_scores, max_rois_per_image).indices
+                final_boxes = final_boxes[topk_indices]
+            
+            # Create tensor [batch_idx, x1, y1, x2, y2]
+            batch_idx = torch.full((final_boxes.shape[0], 1), b, device=preds.device, dtype=preds.dtype)
+            b_rois = torch.cat((batch_idx, final_boxes), dim=1)
+            rois_list.append(b_rois)
+            
+        if len(rois_list) > 0:
+            return torch.cat(rois_list, dim=0)
+        
+        # Return empty tensor with correct shape if no person is detected
+        return torch.empty((0, 5), device=preds.device)
 
 
 class OBB(Detect):
