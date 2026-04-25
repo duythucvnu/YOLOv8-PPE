@@ -254,7 +254,7 @@ class LSNet(torch.nn.Module):
     def __init__(self, img_size=224,
                  patch_size=16,
                  in_chans=3,
-                 embed_dim=[64, 128, 256, 384],
+                 embed_dim=[64, 128, 256],
                  key_dim=[16, 16, 16, 16],
                  depth=[1, 2, 3, 4],
                  num_heads=[4, 4, 4, 4],):
@@ -279,14 +279,14 @@ class LSNet(torch.nn.Module):
             for d in range(dpth):
                 blocks[i].append(Block(ed, kd, nh, ar, resolution, stage=i, depth=d))
             
-            if i != len(depth) - 1:
+            if i != len(depth) - 2:
                 blk = blocks[i+1]
                 resolution_ = (resolution - 1) // 2 + 1
                 blk.append(Conv2d_BN(embed_dim[i], embed_dim[i], ks=3, stride=2, pad=1, groups=embed_dim[i]))
                 blk.append(Conv2d_BN(embed_dim[i], embed_dim[i+1], ks=1, stride=1, pad=0))
                 resolution = resolution_
 
-        self.channel = [embed_dim[0], embed_dim[1], embed_dim[2], embed_dim[3]]
+        self.channel = [embed_dim[0], embed_dim[1], embed_dim[2]]
 
     @torch.jit.ignore # type: ignore
     def no_weight_decay(self):
@@ -297,9 +297,9 @@ class LSNet(torch.nn.Module):
         x1 = self.blocks1(x) # Stage 1 (P2), Stride 4
         x2 = self.blocks2(x1) # Stage 2 (P3), Stride 8
         x3 = self.blocks3(x2) # Stage 3 (P4), Stride 16
-        x4 = self.blocks4(x3) # Stage 4 (P5), Stride 32
+        #x4 = self.blocks4(x3) # Stage 4 (P5), Stride 32
 
-        return [x1, x2, x3, x4] 
+        return [x1, x2, x3] 
 
     def switch_to_deploy(self):
         replace_batchnorm(self)
@@ -308,7 +308,7 @@ class LSNet(torch.nn.Module):
 def lsnet_t(weights=''):
     cfgs = dict(img_size=640,
                 patch_size=8,
-                embed_dim=[64, 128, 256, 384],
+                embed_dim=[64, 128, 256],
                 depth=[0, 2, 8, 10],
                 num_heads=[3, 3, 3, 4],
                 )
@@ -321,7 +321,7 @@ def lsnet_t(weights=''):
 def lsnet_s(weights=''):
     cfgs = dict(img_size=640,
                 patch_size=8,
-                embed_dim=[96, 192, 320, 448],
+                embed_dim=[96, 192, 320],
                 depth=[1, 2, 8, 10],
                 num_heads=[3, 3, 3, 4],
                 )
@@ -334,7 +334,7 @@ def lsnet_s(weights=''):
 def lsnet_b(weights=''):
     cfgs = dict(img_size=640,
                 patch_size=8,
-                embed_dim=[128, 256, 384, 512],
+                embed_dim=[128, 256, 384],
                 depth=[4, 6, 8, 10],
                 num_heads=[3, 3, 3, 4],
                 )
