@@ -22,6 +22,7 @@ from .utils import bias_init_with_prob, linear_init
 import torchvision
 from torchvision.ops import roi_align, batched_nms
 from ultralytics.utils.ops import non_max_suppression
+from ultralytics.utils.ops import xywh2xyxy
 
 __all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment", "DetectHF"
 
