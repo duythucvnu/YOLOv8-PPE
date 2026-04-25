@@ -477,102 +477,95 @@ class v8SegmentationLoss(v8DetectionLoss):
 
 
 class v8HFDetectionLoss(v8DetectionLoss):
-    """
-    Custom loss for YOLOv8-HF (Hierarchical-Flat) model.
-    Combines Focal Loss (to handle severe background class imbalance) 
-    and Context-aware Loss for objects inside a Person.
-    """
-
     def __init__(self, model, tal_topk: int = 10):
         super().__init__(model, tal_topk)
         
-        # Focal loss for flat branch
-        # gamma=2.0, alpha=0.25 are standard values from RetinaNet
-        # to heavily penalize false positives from background.
-        self.focal_loss = FocalLoss(gamma=2.0, alpha=0.25)
+        # Lấy thông số từ tầng DetectHF
+        m = model.model[-1]
+        self.nc_hier = getattr(m, 'nc_hier', 8)
+        self.person_cls_id = getattr(m, 'person_cls_id', 7)
         
-        # Loss for hierachical branch
+        # Nhánh Hierarchical vẫn dùng BCE tiêu chuẩn
         self.hier_bce = nn.BCEWithLogitsLoss(reduction="mean")
-        
-        # Class IDs
-        self.person_cls_id = 7  
-        self.nc_hier = self.nc - 1
-        
-        # Weight for hierarchical branch
-        self.lambda_hier = 1.25 
+        self.lambda_hier = 2 # Để tỉ lệ 1:1 cho cân bằng
 
-    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
-            loss = torch.zeros(4, device=self.device)  # [box, cls_flat, dfl, cls_hier]
+    def __call__(self, preds, batch):
+        loss = torch.zeros(4, device=self.device)
+        
+        # =========================================================
+        # BẢN VÁ LỖI UNPACK: Tự động nhận diện mode Train/Val
+        # =========================================================
+        if isinstance(preds, (list, tuple)):
+            if len(preds) == 3:
+                # Mode Validation: Bỏ qua y_flat (giá trị đầu tiên)
+                _, flat_feats, hier_preds = preds
+            elif len(preds) == 2:
+                # Mode Training: Lấy đủ 2 giá trị
+                flat_feats, hier_preds = preds
+            else:
+                # Trường hợp dự phòng nếu có biến động khác
+                flat_feats = preds[0]
+                hier_preds = preds[1] if len(preds) > 1 else None
+
+        # --- TÍNH TOÁN NHÁNH FLAT (Y hệt YOLOv8 gốc) ---
+        pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
+        pred_scores = pred_scores.permute(0, 2, 1).contiguous()
+        pred_distri = pred_distri.permute(0, 2, 1).contiguous()
+        
+        dtype = pred_scores.dtype
+        batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
+        anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
+
+        # Targets & Decoding
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)
+        mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
+
+        # Assigner
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            pred_scores.detach().sigmoid(),
+            (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
+            anchor_points * stride_tensor,
+            gt_labels,
+            gt_bboxes,
+            mask_gt,
+        )
+        target_scores_sum = max(target_scores.sum(), 1)
+
+        # ---------------------------------------------------------
+        # QUAY LẠI DÙNG BCE TIÊU CHUẨN CHO FLAT BRANCH
+        # ---------------------------------------------------------
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum
+
+        # Box & DFL Loss
+        if fg_mask.sum():
+            target_bboxes /= stride_tensor
+            loss[0], loss[2] = self.bbox_loss(
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
+            )
+
+        # --- TÍNH TOÁN NHÁNH HIERARCHICAL ---
+        if hier_preds is not None:
+            h_box, h_cls, rois = hier_preds
+            # Chỉ lấy nhãn mục tiêu (no grad)
+            with torch.no_grad():
+                hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
             
-            if isinstance(preds, tuple):
-                if len(preds) == 3:
-                    _, flat_feats, hier_preds = preds
-                elif len(preds) == 2:
-                    flat_feats, hier_preds = preds
-                else:
-                    flat_feats = preds
-                    hier_preds = None
-            else:
-                flat_feats = preds
-                hier_preds = None
+            if hier_targets is not None and hier_targets.numel() > 0:
+                loss[3] = self.hier_bce(h_cls, hier_targets)
 
-            pred_distri, pred_scores = torch.cat([xi.view(flat_feats[0].shape[0], self.no, -1) for xi in flat_feats], 2).split(
-                (self.reg_max * 4, self.nc), 1
-            )
+        # Apply Gains
+        loss[0] *= self.hyp.box
+        loss[1] *= self.hyp.cls
+        loss[2] *= self.hyp.dfl
+        loss[3] *= self.lambda_hier
 
-            pred_scores = pred_scores.permute(0, 2, 1).contiguous()
-            pred_distri = pred_distri.permute(0, 2, 1).contiguous()
-
-            dtype = pred_scores.dtype
-            batch_size = pred_scores.shape[0]
-            imgsz = torch.tensor(flat_feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]
-            anchor_points, stride_tensor = make_anchors(flat_feats, self.stride, 0.5)
-
-            targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
-            targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
-            gt_labels, gt_bboxes = targets.split((1, 4), 2)
-            mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
-
-            pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
-
-            _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
-                pred_scores.detach().sigmoid(),
-                (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
-                anchor_points * stride_tensor,
-                gt_labels,
-                gt_bboxes,
-                mask_gt,
-            )
-
-            target_scores_sum = max(target_scores.sum(), 1)
-
-            loss[1] = self.focal_loss(pred_scores, target_scores.to(dtype)) / target_scores_sum
-
-            if fg_mask.sum():
-                target_bboxes /= stride_tensor
-                loss[0], loss[2] = self.bbox_loss(
-                    pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
-                )
-            if hier_preds is not None:
-                h_box, h_cls, rois = hier_preds
-
-                with torch.no_grad():
-                    hier_targets = self._build_hier_targets(rois, targets, batch_size, self.nc_hier)
-                
-                if hier_targets is not None:
-                    loss[3] = self.hier_bce(h_cls, hier_targets)
-
-            # Cực kỳ quan trọng: Nếu không có người nào, phải tạo tensor 0 có requires_grad=True 
-            # để đồ thị không bị khuyết nhánh, gây lỗi DDP hoặc OOM do graph mismatch
-            else:
-                loss[3] = torch.tensor(0.0, device=self.device, requires_grad=True)
-
-            loss[0] *= self.hyp.box
-            loss[1] *= self.hyp.cls
-            loss[2] *= self.hyp.dfl
-            loss[3] *= self.lambda_hier
-
-            return loss.sum() * batch_size, loss.detach()
+        return loss.sum() * batch_size, loss.detach()
 
     def _build_hier_targets(self, rois, targets, batch_size, nc_hier):
             num_rois = rois.shape[0]
