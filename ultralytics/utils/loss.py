@@ -561,12 +561,24 @@ class v8HFDetectionLoss(v8DetectionLoss):
                 
                 # Chỉ tính Box Loss cho những PPE THỰC SỰ CÓ TRÊN NGƯỜI (mask == True)
                 if hier_box_mask.sum() > 0:
-                    pred_boxes = h_box_pred[hier_box_mask]       # [Số lượng PPE thực tế, 4]
-                    tgt_boxes = hier_box_targets[hier_box_mask]  # [Số lượng PPE thực tế, 4]
-                    
-                    # Dùng GIoU Loss (xywh=False vì dữ liệu đã là dạng x1,y1,x2,y2)
+                    pred_boxes = h_box_pred[hier_box_mask]       
+                    tgt_boxes = hier_box_targets[hier_box_mask]  
+
+                    # --- CHỐT CHẶN AN TOÀN: Sắp xếp lại tọa độ để x1 < x2 và y1 < y2 ---
+                    # Đảm bảo pred_boxes luôn đúng định dạng x1, y1, x2, y2
+                    p_x1y1 = torch.min(pred_boxes[:, :2], pred_boxes[:, 2:])
+                    p_x2y2 = torch.max(pred_boxes[:, :2], pred_boxes[:, 2:])
+                    pred_boxes = torch.cat([p_x1y1, p_x2y2], dim=1)
+
+                    # Đảm bảo tgt_boxes cũng vậy (đề phòng dữ liệu nhãn bị ngược)
+                    t_x1y1 = torch.min(tgt_boxes[:, :2], tgt_boxes[:, 2:])
+                    t_x2y2 = torch.max(tgt_boxes[:, :2], tgt_boxes[:, 2:])
+                    tgt_boxes = torch.cat([t_x1y1, t_x2y2], dim=1)
+                    # ---------------------------------------------------------------
+
                     iou = bbox_iou(pred_boxes, tgt_boxes, xywh=False, GIoU=True)
-                    loss[4] = (1.0 - iou).mean() # Loss = 1 - GIoU
+                    # Dùng clamp để ép Loss không bao giờ âm (an toàn tuyệt đối)
+                    loss[4] = torch.clamp((1.0 - iou).mean(), min=0.0)
 
         # Apply Gains
         loss[0] *= self.hyp.box
