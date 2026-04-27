@@ -101,7 +101,6 @@ class Rep_Conv(nn.Module):
 class RepBottleneck(nn.Module):
     def __init__(self, c1, c2, shortcut=True, e=0.5):
         super().__init__()
-        c_ = int(c2 * e)
         self.cv1 = Rep_Conv(c1, c_, kernel_size=3, stride=1, padding=1, act=nn.SiLU())
         self.cv2 = Rep_Conv(c_, c2, kernel_size=3, stride=1, padding=1, act=nn.SiLU())
         self.add = shortcut and c1 == c2

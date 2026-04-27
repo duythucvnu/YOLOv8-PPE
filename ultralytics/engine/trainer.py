@@ -15,7 +15,7 @@ import warnings
 from copy import copy, deepcopy
 from datetime import datetime, timedelta
 from pathlib import Path
-
+os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 import numpy as np
 import torch
 from torch import distributed as dist
@@ -55,6 +55,7 @@ from ultralytics.utils.torch_utils import (
     unset_deterministic,
 )
 
+#torch.autograd.set_detect_anomaly(True)
 
 class BaseTrainer:
     """
@@ -433,7 +434,7 @@ class BaseTrainer:
                 # Log
                 if RANK in {-1, 0}:
                     loss_length = self.tloss.shape[0] if len(self.tloss.shape) else 1
-
+                    
                     pbar.set_description(
                         ("%11s" * 2 + "%11.4g" * (2 + loss_length))
                         % (

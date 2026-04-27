@@ -254,7 +254,7 @@ class LSNet(torch.nn.Module):
     def __init__(self, img_size=224,
                  patch_size=16,
                  in_chans=3,
-                 embed_dim=[64, 128, 256],
+                 embed_dim=[64, 128, 192],
                  key_dim=[16, 16, 16, 16],
                  depth=[1, 2, 3, 4],
                  num_heads=[4, 4, 4, 4],):
