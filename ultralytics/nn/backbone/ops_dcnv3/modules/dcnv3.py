@@ -338,18 +338,29 @@ class DCNv3(nn.Module):
         # mask = self.mask(x1).reshape(N, H, W, self.group, -1)
         # mask = F.softmax(mask, -1)
         # mask = mask.reshape(N, H, W, -1).type(dtype)
-        
-        x = DCNv3Function.apply(
-            x, offset, mask,
-            self.kernel_size, self.kernel_size,
-            self.stride, self.stride,
-            self.pad, self.pad,
-            self.dilation, self.dilation,
-            self.group, self.group_channels,
-            self.offset_scale,
-            256,
-            self.remove_center)
-        
+
+        if input.is_cuda:
+            x = DCNv3Function.apply(
+                x, offset, mask,
+                self.kernel_size, self.kernel_size,
+                self.stride, self.stride,
+                self.pad, self.pad,
+                self.dilation, self.dilation,
+                self.group, self.group_channels,
+                self.offset_scale,
+                256,
+                self.remove_center)
+        else:
+            x = dcnv3_core_pytorch(
+                x, offset, mask,
+                self.kernel_size, self.kernel_size,
+                self.stride, self.stride,
+                self.pad, self.pad,
+                self.dilation, self.dilation,
+                self.group, self.group_channels,
+                self.offset_scale,
+                self.remove_center)
+            
         if self.center_feature_scale:
             center_feature_scale = self.center_feature_scale_module(
                 x1, self.center_feature_scale_proj_weight, self.center_feature_scale_proj_bias)

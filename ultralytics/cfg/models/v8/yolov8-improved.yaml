@@ -17,7 +17,7 @@ scales: # model compound scaling constants, i.e. 'model=yolov8n.yaml' will call 
 # YOLOv8.0n backbone
 backbone:
   # [from, repeats, module, args]
-  - [-1, 1, overlock_xt, ['https://github.com/LMMMEng/OverLoCK/releases/download/v1/overlock_xt_in1k_224.pth']]  # 4
+  - [-1, 1, UniConvNet_P2, ['https://huggingface.co/ai-modelwithcode/UniConvNet/resolve/main/uniconvnet_p2_1k_224_ema.pth']]  # 4
   - [-1, 1, SPPF, [1024, 5]]  # 5
 
 # YOLOv8.0n head
