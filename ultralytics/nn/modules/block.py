@@ -46,6 +46,7 @@ __all__ = (
     "CBLinear",
     "C3k2",
     "C2fPSA",
+    "C2f_CARE",
     "C2PSA",
     "RepVGGDW",
     "CIB",
@@ -57,6 +58,138 @@ __all__ = (
     "FocalModulation",
 )
 
+
+class LiteLinearAttention(nn.Module):
+    """
+    Linear Attention module extracted from CARE, optimized for CPU.
+    Uses ELU instead of Softmax to avoid computational latency.
+    """
+    def __init__(self, dim):
+        super().__init__()
+        self.dim = dim
+        self.qk = nn.Conv2d(dim, 2 * dim, kernel_size=1)
+        self.elu = nn.ELU()
+
+    def forward(self, x):
+        B, C, H, W = x.shape
+        N = H * W
+
+        # Generate Query and Key
+        x_qk = self.qk(x).reshape(B, 2 * C, N)
+        q, k = x_qk.split(C, dim=1)
+
+        q = self.elu(q) + 1.0  # (B, C, N)
+        k = self.elu(k) + 1.0  # (B, C, N)
+        v = x.reshape(B, C, N) # (B, C, N)
+
+        # Linear Attention computation: Q * (K^T * V)
+
+        # 1. Compute normalization factor Z
+        z = 1 / (
+            torch.einsum("bcn,bcn->bc", q, k.mean(dim=-1, keepdim=True))
+            + 1e-6
+        )
+
+        # 2. Compute (K * V^T)
+        # Matrix size is very small (C x C), so CPU computation is extremely fast
+        kv = torch.einsum("bcn,bdn->bcd", k, v) / N
+
+        # 3. Multiply Q with (KV) and normalize
+        out = torch.einsum("bcn,bcd->bdn", q, kv) * z.unsqueeze(-1)
+
+        return out.reshape(B, C, H, W)
+
+
+class CAREBottleneck(nn.Module):
+    """
+    New Bottleneck block replacing YOLO's original Bottleneck.
+    Uses Asymmetric Decoupling
+    (Linear Attention + Depthwise Convolutions).
+    """
+    def __init__(self, c1, c2, shortcut=True, e=1.0):
+        super().__init__()
+        c_hidden = int(c2 * e)
+
+        # Asymmetric split:
+        # 25% channels for Attention, 75% for Local Bias
+        self.c_att = c_hidden // 4
+        self.c_dw3 = (c_hidden - self.c_att) // 2
+        self.c_dw5 = c_hidden - self.c_att - self.c_dw3
+
+        # 1. Global branch (Linear Attention)
+        self.attn = LiteLinearAttention(self.c_att)
+
+        # 2. Local branch (Depthwise Convolutions)
+        self.dwconv3 = nn.Conv2d(
+            self.c_dw3,
+            self.c_dw3,
+            kernel_size=3,
+            padding=1,
+            groups=self.c_dw3,
+            bias=False
+        )
+
+        self.dwconv5 = nn.Conv2d(
+            self.c_dw5,
+            self.c_dw5,
+            kernel_size=5,
+            padding=2,
+            groups=self.c_dw5,
+            bias=False
+        )
+
+        self.bn_local = nn.BatchNorm2d(self.c_dw3 + self.c_dw5)
+        self.act = nn.SiLU()
+
+        # 3. Mixer layer
+        self.mix_conv = Conv(c_hidden, c2, k=1)
+
+        self.add = shortcut and c1 == c2
+
+    def forward(self, x):
+        # Asymmetric Decoupling
+        x_att, x_dw3, x_dw5 = torch.split(
+            x,
+            [self.c_att, self.c_dw3, self.c_dw5],
+            dim=1
+        )
+
+        # Parallel processing
+        out_att = self.attn(x_att)
+
+        out_dw3 = self.dwconv3(x_dw3)
+        out_dw5 = self.dwconv5(x_dw5)
+
+        out_local = self.act(
+            self.bn_local(torch.cat([out_dw3, out_dw5], dim=1))
+        )
+
+        # Fuse outputs and pass through 1x1 Conv
+        out_fused = torch.cat([out_att, out_local], dim=1)
+        out = self.mix_conv(out_fused)
+
+        return x + out if self.add else out
+
+
+class C2f_CARE(nn.Module):
+    def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5):
+        super().__init__()
+
+        self.c = int(c2 * e)  # Hidden channels
+
+        self.cv1 = Conv(c1, 2 * self.c, 1, 1)
+        self.cv2 = Conv((2 + n) * self.c, c2, 1)
+
+        self.m = nn.ModuleList(
+            CAREBottleneck(self.c, self.c, shortcut, e=1.0)
+            for _ in range(n)
+        )
+
+    def forward(self, x):
+        y = list(self.cv1(x).chunk(2, 1))
+        y.extend(m(y[-1]) for m in self.m)
+
+        return self.cv2(torch.cat(y, 1))
 
 class DFL(nn.Module):
     """

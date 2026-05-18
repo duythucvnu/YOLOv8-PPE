@@ -42,6 +42,7 @@ from .block import (
     C2fAttn,
     C2fCIB,
     C2fPSA,
+    C2f_CARE,
     C3Ghost,
     C3k2,
     C3x,
