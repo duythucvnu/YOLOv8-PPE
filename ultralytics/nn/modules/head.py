@@ -241,21 +241,26 @@ class SADHDetect(nn.Module):
 
     def __init__(
         self,
-        nc_entity: int = 1,
-        nc_state: int = 2,
+        nc: int = 80,
         ch: Tuple = (),
     ):
 
         super().__init__()
 
-        self.nc_entity = nc_entity
-        self.nc_state = nc_state
-        self.nc = nc_entity + nc_state
+        self.nc_entity = 5
+        self.nc_state = 2
+
+        self.nc = self.nc_entity + self.nc_state
         self.nl = len(ch)
 
         self.reg_max = 16
 
-        self.no = self.nc_entity + self.nc_state + self.reg_max * 4
+        self.no = (
+            self.nc_entity
+            + self.nc_state
+            + self.reg_max * 4
+        )
+
         self.stride = torch.zeros(self.nl)
 
         c2 = max((16, ch[0] // 4, self.reg_max * 4))
@@ -289,7 +294,11 @@ class SADHDetect(nn.Module):
             for x in ch
         )
 
-        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+        self.dfl = (
+            DFL(self.reg_max)
+            if self.reg_max > 1
+            else nn.Identity()
+        )
 
     def forward(
         self,
