@@ -18,7 +18,8 @@ from .conv import Conv, DWConv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment"
+
+__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder", "v10Detect", "YOLOEDetect", "YOLOESegment", "SADHDetect"
 
 
 class Detect(nn.Module):
@@ -229,6 +230,170 @@ class Detect(nn.Module):
         i = torch.arange(batch_size)[..., None]  # batch indices
         return torch.cat([boxes[i, index // nc], scores[..., None], (index % nc)[..., None].float()], dim=-1)
 
+class SADHDetect(nn.Module):
+
+    dynamic = False
+    export = False
+    format = None
+    shape = None
+    anchors = torch.empty(0)
+    strides = torch.empty(0)
+
+    def __init__(
+        self,
+        nc_entity: int = 1,
+        nc_state: int = 2,
+        ch: Tuple = (),
+    ):
+
+        super().__init__()
+
+        self.nc_entity = nc_entity
+        self.nc_state = nc_state
+        self.nc = nc_entity + nc_state
+        self.nl = len(ch)
+
+        self.reg_max = 16
+
+        self.no = self.nc_entity + self.nc_state + self.reg_max * 4
+        self.stride = torch.zeros(self.nl)
+
+        c2 = max((16, ch[0] // 4, self.reg_max * 4))
+        c3 = max(ch[0], min(self.nc_entity, 100))
+        c4 = max(ch[0], min(self.nc_state, 100))
+
+        self.cv2 = nn.ModuleList(
+            nn.Sequential(
+                Conv(x, c2, 3),
+                Conv(c2, c2, 3),
+                nn.Conv2d(c2, 4 * self.reg_max, 1),
+            )
+            for x in ch
+        )
+
+        self.cv3 = nn.ModuleList(
+            nn.Sequential(
+                nn.Sequential(DWConv(x, x, 3), Conv(x, c3, 1)),
+                nn.Sequential(DWConv(c3, c3, 3), Conv(c3, c3, 1)),
+                nn.Conv2d(c3, self.nc_entity, 1),
+            )
+            for x in ch
+        )
+
+        self.cv4 = nn.ModuleList(
+            nn.Sequential(
+                nn.Sequential(DWConv(x, x, 3), Conv(x, c4, 1)),
+                nn.Sequential(DWConv(c4, c4, 3), Conv(c4, c4, 1)),
+                nn.Conv2d(c4, self.nc_state, 1),
+            )
+            for x in ch
+        )
+
+        self.dfl = DFL(self.reg_max) if self.reg_max > 1 else nn.Identity()
+
+    def forward(
+        self,
+        x: List[torch.Tensor],
+    ) -> Union[List[torch.Tensor], Tuple]:
+
+        for i in range(self.nl):
+            x[i] = torch.cat(
+                (
+                    self.cv2[i](x[i]),
+                    self.cv3[i](x[i]),
+                    self.cv4[i](x[i]),
+                ),
+                1,
+            )
+
+        if self.training:
+            return x
+
+        y = self._inference(x)
+
+        return y if self.export else (y, x)
+
+    def _inference(
+        self,
+        x: List[torch.Tensor],
+    ) -> torch.Tensor:
+
+        shape = x[0].shape
+
+        x_cat = torch.cat(
+            [xi.view(shape[0], self.no, -1) for xi in x],
+            2,
+        )
+
+        if self.dynamic or self.shape != shape:
+            self.anchors, self.strides = (
+                x.transpose(0, 1)
+                for x in make_anchors(x, self.stride, 0.5)
+            )
+
+            self.shape = shape
+
+        box, cls_entity, cls_state = x_cat.split(
+            (
+                self.reg_max * 4,
+                self.nc_entity,
+                self.nc_state,
+            ),
+            1,
+        )
+
+        dbox = (
+            self.decode_bboxes(
+                self.dfl(box),
+                self.anchors.unsqueeze(0),
+            )
+            * self.strides
+        )
+
+        prob_entity = cls_entity.sigmoid()
+        prob_state = cls_state.softmax(dim=1)
+
+        return torch.cat(
+            (
+                dbox,
+                prob_entity,
+                prob_state,
+            ),
+            1,
+        )
+
+    def bias_init(self):
+
+        m = self
+
+        for a, b, c, s in zip(
+            m.cv2,
+            m.cv3,
+            m.cv4,
+            m.stride,
+        ):
+
+            a[-1].bias.data[:] = 1.0
+
+            b[-1].bias.data[: m.nc_entity] = math.log(
+                5 / m.nc_entity / (640 / s) ** 2
+            )
+
+            c[-1].bias.data[:] = 0.0
+
+    def decode_bboxes(
+        self,
+        bboxes: torch.Tensor,
+        anchors: torch.Tensor,
+        xywh: bool = True,
+    ) -> torch.Tensor:
+
+        return dist2bbox(
+            bboxes,
+            anchors,
+            xywh=xywh,
+            dim=1,
+        )
 
 class Segment(Detect):
     """

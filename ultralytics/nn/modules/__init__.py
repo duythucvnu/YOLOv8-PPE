@@ -92,6 +92,7 @@ from .head import (
     YOLOEDetect,
     YOLOESegment,
     v10Detect,
+    SADHDetect,
 )
 from .transformer import (
     AIFI,
@@ -186,4 +187,5 @@ __all__ = (
     "FocalModulation",
     "Index",
     "A2C2f",
+    "SADHDetect"
 )
