@@ -239,11 +239,7 @@ class SADHDetect(nn.Module):
     anchors = torch.empty(0)
     strides = torch.empty(0)
 
-    def __init__(
-        self,
-        nc: int = 80,
-        ch: Tuple = (),
-    ):
+    def __init__(self, nc=80, ch=()):
 
         super().__init__()
 
