@@ -318,54 +318,44 @@ class SADHDetect(nn.Module):
 
         return y if self.export else (y, x)
 
-    def _inference(
-        self,
-        x: List[torch.Tensor],
-    ) -> torch.Tensor:
-
+    def _inference(self, x: List[torch.Tensor]) -> torch.Tensor:
         shape = x[0].shape
-
-        x_cat = torch.cat(
-            [xi.view(shape[0], self.no, -1) for xi in x],
-            2,
-        )
+        x_cat = torch.cat([xi.view(shape[0], self.no, -1) for xi in x], 2)
 
         if self.dynamic or self.shape != shape:
             self.anchors, self.strides = (
-                x.transpose(0, 1)
-                for x in make_anchors(x, self.stride, 0.5)
+                x.transpose(0, 1) for x in make_anchors(x, self.stride, 0.5)
             )
-
             self.shape = shape
 
         box, cls_entity, cls_state = x_cat.split(
-            (
-                self.reg_max * 4,
-                self.nc_entity,
-                self.nc_state,
-            ),
-            1,
+            (self.reg_max * 4, self.nc_entity, self.nc_state), 1
         )
 
-        dbox = (
-            self.decode_bboxes(
-                self.dfl(box),
-                self.anchors.unsqueeze(0),
-            )
-            * self.strides
-        )
+        dbox = self.decode_bboxes(
+            self.dfl(box), self.anchors.unsqueeze(0)
+        ) * self.strides
 
         prob_entity = cls_entity.sigmoid()
         prob_state = cls_state.softmax(dim=1)
 
-        return torch.cat(
-            (
-                dbox,
-                prob_entity,
-                prob_state,
-            ),
-            1,
+        prob_flat = torch.zeros(
+            (shape[0], 9, x_cat.shape[-1]),
+            device=x_cat.device,
+            dtype=x_cat.dtype,
         )
+
+        prob_flat[:, 0, :] = prob_entity[:, 3, :] * prob_state[:, 1, :]
+        prob_flat[:, 1, :] = prob_entity[:, 2, :] * prob_state[:, 1, :]
+        prob_flat[:, 2, :] = prob_entity[:, 1, :] * prob_state[:, 1, :]
+        prob_flat[:, 3, :] = prob_entity[:, 3, :] * prob_state[:, 0, :]
+        prob_flat[:, 4, :] = prob_entity[:, 2, :] * prob_state[:, 0, :]
+        prob_flat[:, 5, :] = prob_entity[:, 1, :] * prob_state[:, 0, :]
+        prob_flat[:, 6, :] = prob_entity[:, 4, :] * prob_state[:, 0, :]
+        prob_flat[:, 7, :] = prob_entity[:, 0, :]
+        prob_flat[:, 8, :] = prob_entity[:, 4, :] * prob_state[:, 1, :]
+
+        return torch.cat((dbox, prob_flat), 1)
 
     def bias_init(self):
 
