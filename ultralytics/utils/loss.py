@@ -386,7 +386,7 @@ class v8DetectionLoss:
             .expand(-1, target_gt_idx.shape[1])
         )
 
-        assigned_states = gt_state[b_idx, target_gt_idx]
+        assigned_states = gt_state[b_idx, target_gt_idx.long()]
 
         valid_state_mask = fg_mask & (assigned_states != -1)
 
