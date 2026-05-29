@@ -380,11 +380,18 @@ class v8DetectionLoss:
             / target_scores_sum
         )
 
-        try:
+        b_idx = (
+            torch.arange(batch_size, device=self.device)
+            .view(-1, 1)
+            .expand(-1, target_gt_idx.shape[1])
+        )
+
+        if gt_state.shape[1] == 0 or target_gt_idx.numel() == 0:
+            loss_state = torch.tensor(0.0, device=self.device)
+        else:
             b_idx = torch.arange(batch_size, device=self.device).view(-1, 1).expand(-1, target_gt_idx.shape[1]).long()
 
             safe_target_gt_idx = target_gt_idx.long().clamp_(0, gt_state.shape[1] - 1)
-
             assigned_states = gt_state[b_idx, safe_target_gt_idx]
 
             valid_state_mask = fg_mask & (assigned_states != -1)
@@ -396,24 +403,6 @@ class v8DetectionLoss:
                 loss_state = self.ce_state(valid_pred_state, valid_target_state).sum() / target_scores_sum
             else:
                 loss_state = torch.tensor(0.0, device=self.device)
-
-        except IndexError as e:
-            print(f"\n[{self.device}] === DEBUG INFO BEFORE CRASH ===")
-            print(f"[{self.device}] Error message: {e}")
-            print(f"[{self.device}] gt_state.shape: {gt_state.shape}")
-            print(f"[{self.device}] target_gt_idx.shape: {target_gt_idx.shape}")
-            print(f"[{self.device}] b_idx.shape: {b_idx.shape}")
-
-            if gt_state.shape[1] > 0:
-                print(f"[{self.device}] MAX index in safe_target_gt_idx: {safe_target_gt_idx.max().item()}")
-                print(f"[{self.device}] MIN index in safe_target_gt_idx: {safe_target_gt_idx.min().item()}")
-            else:
-                print(f"[{self.device}] WARNING: gt_state is empty (dimension 1 is 0)!")
-
-            print(f"[{self.device}] batch_idx (targets): {targets[:, 0].unique()}")
-            print(f"[{self.device}] ====================================\n")
-
-            raise e
 
         loss[1] = loss_entity + loss_state
 
