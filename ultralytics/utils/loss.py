@@ -386,24 +386,21 @@ class v8DetectionLoss:
             .expand(-1, target_gt_idx.shape[1])
         )
 
-        assigned_states = gt_state[b_idx, target_gt_idx.long()]
-
-        valid_state_mask = fg_mask & (assigned_states != -1)
-
-        if valid_state_mask.sum() > 0:
-            valid_pred_state = pred_state[valid_state_mask]
-            valid_target_state = assigned_states[valid_state_mask]
-
-            loss_state = (
-                self.ce_state(
-                    valid_pred_state,
-                    valid_target_state,
-                ).sum()
-                / target_scores_sum
-            )
-
-        else:
+        if target_gt_idx.numel() == 0:
             loss_state = torch.tensor(0.0, device=self.device)
+        else:
+            b_idx = torch.arange(batch_size, device=self.device).view(-1, 1).expand(-1, target_gt_idx.shape[1]).long()
+            assigned_states = gt_state[b_idx, target_gt_idx.long()] 
+            
+            valid_state_mask = fg_mask & (assigned_states != -1)
+
+            if valid_state_mask.sum() > 0:
+                valid_pred_state = pred_state[valid_state_mask]
+                valid_target_state = assigned_states[valid_state_mask]
+                
+                loss_state = self.ce_state(valid_pred_state, valid_target_state).sum() / target_scores_sum
+            else:
+                loss_state = torch.tensor(0.0, device=self.device)
 
         loss[1] = loss_entity + loss_state
 
