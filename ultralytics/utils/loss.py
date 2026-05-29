@@ -386,13 +386,12 @@ class v8DetectionLoss:
             .expand(-1, target_gt_idx.shape[1])
         )
 
-        if target_gt_idx.numel() == 0 or target_gt_idx.shape[1] == 0:
+        if gt_state.shape[1] == 0 or target_gt_idx.numel() == 0:
             loss_state = torch.tensor(0.0, device=self.device)
         else:
             b_idx = torch.arange(batch_size, device=self.device).view(-1, 1).expand(-1, target_gt_idx.shape[1]).long()
 
             safe_target_gt_idx = target_gt_idx.long().clamp_(0, gt_state.shape[1] - 1)
-
             assigned_states = gt_state[b_idx, safe_target_gt_idx]
 
             valid_state_mask = fg_mask & (assigned_states != -1)
