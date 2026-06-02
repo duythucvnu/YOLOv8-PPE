@@ -337,7 +337,7 @@ class SADHDetect(nn.Module):
         ) * self.strides
 
         prob_entity = cls_entity.sigmoid()
-        prob_state = cls_state.softmax(dim=1)
+        prob_state = (cls_state / 0.5).softmax(dim=1)
 
         prob_flat = torch.zeros(
             (shape[0], 9, x_cat.shape[-1]),

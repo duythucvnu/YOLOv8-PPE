@@ -404,7 +404,8 @@ class v8DetectionLoss:
             else:
                 loss_state = torch.tensor(0.0, device=self.device)
 
-        loss[1] = loss_entity + loss_state
+        lambda_state = 0.5
+        loss[1] = loss_entity + (lambda_state * loss_state)
 
         if fg_mask.sum():
             target_bboxes /= stride_tensor
