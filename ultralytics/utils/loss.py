@@ -196,235 +196,111 @@ class KeypointLoss(nn.Module):
         e = d / ((2 * self.sigmas).pow(2) * (area + 1e-9) * 2)  # from cocoeval
         return (kpt_loss_factor.view(-1, 1) * ((1 - torch.exp(-e)) * kpt_mask)).mean()
 
+
 class v8DetectionLoss:
-    def __init__(self, model, tal_topk: int = 10):
-        device = next(model.parameters()).device
-        h = model.args
+    """Criterion class for computing training losses for YOLOv8 object detection."""
 
-        m = model.model[-1]
+    def __init__(self, model, tal_topk: int = 10):  # model must be de-paralleled
+        """Initialize v8DetectionLoss with model parameters and task-aligned assignment settings."""
+        device = next(model.parameters()).device  # get model device
+        h = model.args  # hyperparameters
 
-        self.nc_entity = m.nc_entity
-        self.nc_state = m.nc_state
-        self.nc = m.nc
-
+        m = model.model[-1]  # Detect() module
         self.bce = nn.BCEWithLogitsLoss(reduction="none")
-        self.ce_state = nn.CrossEntropyLoss(reduction="none")
-
         self.hyp = h
-        self.stride = m.stride
-        self.no = m.no
+        self.stride = m.stride  # model strides
+        self.nc = m.nc  # number of classes
+        self.no = m.nc + m.reg_max * 4
         self.reg_max = m.reg_max
         self.device = device
+
         self.use_dfl = m.reg_max > 1
 
-        self.assigner = TaskAlignedAssigner(
-            topk=tal_topk,
-            num_classes=self.nc_entity,
-            alpha=0.5,
-            beta=6.0,
-        )
-
+        self.assigner = TaskAlignedAssigner(topk=tal_topk, num_classes=self.nc, alpha=0.5, beta=6.0)
         self.bbox_loss = BboxLoss(m.reg_max).to(device)
         self.proj = torch.arange(m.reg_max, dtype=torch.float, device=device)
 
-        self.entity_map = torch.tensor(
-            [3, 2, 1, 3, 2, 1, 4, 0, 4],
-            dtype=torch.long,
-            device=device,
-        )
-
-        self.state_map = torch.tensor(
-            [1, 1, 1, 0, 0, 0, 0, -1, 1],
-            dtype=torch.long,
-            device=device,
-        )
-
-    def preprocess(
-        self,
-        targets: torch.Tensor,
-        batch_size: int,
-        scale_tensor: torch.Tensor,
-    ) -> torch.Tensor:
-
+    def preprocess(self, targets: torch.Tensor, batch_size: int, scale_tensor: torch.Tensor) -> torch.Tensor:
+        """Preprocess targets by converting to tensor format and scaling coordinates."""
         nl, ne = targets.shape
-
         if nl == 0:
             out = torch.zeros(batch_size, 0, ne - 1, device=self.device)
-
         else:
-            i = targets[:, 0]
+            i = targets[:, 0]  # image index
             _, counts = i.unique(return_counts=True)
-
             counts = counts.to(dtype=torch.int32)
-
-            out = torch.zeros(
-                batch_size,
-                counts.max(),
-                ne - 1,
-                device=self.device,
-            )
-
+            out = torch.zeros(batch_size, counts.max(), ne - 1, device=self.device)
             for j in range(batch_size):
                 matches = i == j
-
                 if n := matches.sum():
                     out[j, :n] = targets[matches, 1:]
-
-            out[..., 1:5] = xywh2xyxy(
-                out[..., 1:5].mul_(scale_tensor)
-            )
-
+            out[..., 1:5] = xywh2xyxy(out[..., 1:5].mul_(scale_tensor))
         return out
 
-    def bbox_decode(
-        self,
-        anchor_points: torch.Tensor,
-        pred_dist: torch.Tensor,
-    ) -> torch.Tensor:
-
+    def bbox_decode(self, anchor_points: torch.Tensor, pred_dist: torch.Tensor) -> torch.Tensor:
+        """Decode predicted object bounding box coordinates from anchor points and distribution."""
         if self.use_dfl:
-            b, a, c = pred_dist.shape
-
-            pred_dist = (
-                pred_dist
-                .view(b, a, 4, c // 4)
-                .softmax(3)
-                .matmul(self.proj.type(pred_dist.dtype))
-            )
-
+            b, a, c = pred_dist.shape  # batch, anchors, channels
+            pred_dist = pred_dist.view(b, a, 4, c // 4).softmax(3).matmul(self.proj.type(pred_dist.dtype))
+            # pred_dist = pred_dist.view(b, a, c // 4, 4).transpose(2,3).softmax(3).matmul(self.proj.type(pred_dist.dtype))
+            # pred_dist = (pred_dist.view(b, a, c // 4, 4).softmax(2) * self.proj.type(pred_dist.dtype).view(1, 1, -1, 1)).sum(2)
         return dist2bbox(pred_dist, anchor_points, xywh=False)
 
-    def __call__(
-        self,
-        preds: Any,
-        batch: Dict[str, torch.Tensor],
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-
-        loss = torch.zeros(3, device=self.device)
-
+    def __call__(self, preds: Any, batch: Dict[str, torch.Tensor]) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Calculate the sum of the loss for box, cls and dfl multiplied by batch size."""
+        loss = torch.zeros(3, device=self.device)  # box, cls, dfl
         feats = preds[1] if isinstance(preds, tuple) else preds
-
-        pred_distri, pred_scores = torch.cat(
-            [xi.view(feats[0].shape[0], self.no, -1) for xi in feats],
-            2,
-        ).split((self.reg_max * 4, self.nc), 1)
+        pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
+            (self.reg_max * 4, self.nc), 1
+        )
 
         pred_scores = pred_scores.permute(0, 2, 1).contiguous()
         pred_distri = pred_distri.permute(0, 2, 1).contiguous()
 
-        pred_entity, pred_state = pred_scores.split(
-            (self.nc_entity, self.nc_state),
-            2,
-        )
-
         dtype = pred_scores.dtype
         batch_size = pred_scores.shape[0]
+        imgsz = torch.tensor(feats[0].shape[2:], device=self.device, dtype=dtype) * self.stride[0]  # image size (h,w)
+        anchor_points, stride_tensor = make_anchors(feats, self.stride, 0.5)
 
-        imgsz = (
-            torch.tensor(
-                feats[0].shape[2:],
-                device=self.device,
-                dtype=dtype,
-            )
-            * self.stride[0]
-        )
-
-        anchor_points, stride_tensor = make_anchors(
-            feats,
-            self.stride,
-            0.5,
-        )
-
-        targets = torch.cat(
-            (
-                batch["batch_idx"].view(-1, 1),
-                batch["cls"].view(-1, 1),
-                batch["bboxes"],
-            ),
-            1,
-        )
-
-        targets = self.preprocess(
-            targets.to(self.device),
-            batch_size,
-            scale_tensor=imgsz[[1, 0, 1, 0]],
-        )
-
-        gt_labels_flat, gt_bboxes = targets.split((1, 4), 2)
-
+        # Targets
+        targets = torch.cat((batch["batch_idx"].view(-1, 1), batch["cls"].view(-1, 1), batch["bboxes"]), 1)
+        targets = self.preprocess(targets.to(self.device), batch_size, scale_tensor=imgsz[[1, 0, 1, 0]])
+        gt_labels, gt_bboxes = targets.split((1, 4), 2)  # cls, xyxy
         mask_gt = gt_bboxes.sum(2, keepdim=True).gt_(0.0)
 
-        gt_labels_flat = gt_labels_flat.long().squeeze(-1)
+        # Pboxes
+        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
+        # dfl_conf = pred_distri.view(batch_size, -1, 4, self.reg_max).detach().softmax(-1)
+        # dfl_conf = (dfl_conf.amax(-1).mean(-1) + dfl_conf.amax(-1).amin(-1)) / 2
 
-        gt_entity = self.entity_map[gt_labels_flat]
-        gt_state = self.state_map[gt_labels_flat]
-
-        pred_bboxes = self.bbox_decode(anchor_points, pred_distri)
-
-        _, target_bboxes, target_entity_scores, fg_mask, target_gt_idx = self.assigner(
-            pred_entity.detach().sigmoid(),
+        _, target_bboxes, target_scores, fg_mask, _ = self.assigner(
+            # pred_scores.detach().sigmoid() * 0.8 + dfl_conf.unsqueeze(-1) * 0.2,
+            pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor,
-            gt_entity.unsqueeze(-1),
+            gt_labels,
             gt_bboxes,
             mask_gt,
         )
 
-        target_scores_sum = max(target_entity_scores.sum(), 1)
+        target_scores_sum = max(target_scores.sum(), 1)
 
-        loss_entity = (
-            self.bce(
-                pred_entity,
-                target_entity_scores.to(dtype),
-            ).sum()
-            / target_scores_sum
-        )
+        # Cls loss
+        # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+        loss[1] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
-        b_idx = (
-            torch.arange(batch_size, device=self.device)
-            .view(-1, 1)
-            .expand(-1, target_gt_idx.shape[1])
-        )
-
-        if gt_state.shape[1] == 0 or target_gt_idx.numel() == 0:
-            loss_state = torch.tensor(0.0, device=self.device)
-        else:
-            b_idx = torch.arange(batch_size, device=self.device).view(-1, 1).expand(-1, target_gt_idx.shape[1]).long()
-
-            safe_target_gt_idx = target_gt_idx.long().clamp_(0, gt_state.shape[1] - 1)
-            assigned_states = gt_state[b_idx, safe_target_gt_idx]
-
-            valid_state_mask = fg_mask & (assigned_states != -1)
-
-            if valid_state_mask.sum() > 0:
-                valid_pred_state = pred_state[valid_state_mask]
-                valid_target_state = assigned_states[valid_state_mask]
-
-                loss_state = self.ce_state(valid_pred_state, valid_target_state).sum() / target_scores_sum
-            else:
-                loss_state = torch.tensor(0.0, device=self.device)
-
-        lambda_state = 0.5
-        loss[1] = loss_entity + (lambda_state * loss_state)
-
+        # Bbox loss
         if fg_mask.sum():
             target_bboxes /= stride_tensor
-
             loss[0], loss[2] = self.bbox_loss(
-                pred_distri,
-                pred_bboxes,
-                anchor_points,
-                target_bboxes,
-                target_entity_scores,
-                target_scores_sum,
-                fg_mask,
+                pred_distri, pred_bboxes, anchor_points, target_bboxes, target_scores, target_scores_sum, fg_mask
             )
 
-        loss[0] *= self.hyp.box
-        loss[1] *= self.hyp.cls
-        loss[2] *= self.hyp.dfl
+        loss[0] *= self.hyp.box  # box gain
+        loss[1] *= self.hyp.cls  # cls gain
+        loss[2] *= self.hyp.dfl  # dfl gain
 
-        return loss * batch_size, loss.detach()
+        return loss * batch_size, loss.detach()  # loss(box, cls, dfl)
 
 
 class v8SegmentationLoss(v8DetectionLoss):
